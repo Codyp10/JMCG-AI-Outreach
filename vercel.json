@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "src/app/api/workers/**/*.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron-receiver/**/*.ts": {
+      "maxDuration": 60
+    }
+  }
+}

@@ -4,19 +4,19 @@ overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 day
 todos:
   - id: supabase-schema
     content: "Model Supabase tables with v2/v2.1 additions: leads (ICP proxy fields: icp_vertical, google_review_count, hiring/ads/FSM flags, icp_disqualification_reason; voice_consent; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (classification per Section 7), cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs; pg_cron → Vercel"
-    status: pending
+    status: completed
   - id: smartlead-mapping
     content: "Map 20 mailboxes (18 primary + 2 backup) across 2 domains in Smartlead; set daily caps at floor(178/18)=9 per primary mailbox; configure warmup schedule staggered over 2-4 weeks"
-    status: pending
+    status: completed
   - id: orchestration-workers
     content: "Implement Vercel serverless workers + Supabase pg_cron triggers: waterfall enrichment, score, phone-enrich, copy-generate+QA, send-queue, reply-agent webhook, monthly-optimize, cooldown-reentry; idempotent batches; shared-secret auth"
-    status: pending
+    status: completed
   - id: vercel-project-setup
     content: "Create Vercel Pro project for JMCG outreach workers. Set env vars (Supabase service role, Claude API, Smartlead, enrichment providers, Slack, CRON_SECRET, SMARTLEAD_WEBHOOK_SECRET). Add /api/workers/* routes + auth middleware. Configure Supabase pg_cron HTTP calls with secret header."
-    status: pending
+    status: completed
   - id: leverage-library
     content: "Populate Leverage Library with JMCG HVAC case studies (residential HVAC, independent operators); tag-based matching: industry_tags (hvac), persona_tags (owner, GM, marketing), geo, company_archetype (independent_owner_operator); tie-break on strongest metric"
-    status: pending
+    status: completed
   - id: compliance-review
     content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for prerecorded voicemail drops + handwritten/direct mail only; consent/suppression per counsel. Do NOT activate voicemail or mail channels until resolved."
     status: pending
@@ -29,7 +29,7 @@ todos:
     status: pending
   - id: backup-mailbox-monitoring
     content: "Implement mailbox_health tracking: auto-pause on bounce >5% or complaint >0.1%, auto-activate backup, log swap to optimization_log"
-    status: pending
+    status: completed
   - id: command-center-dashboard
     content: "PHASE 2 (after core workers + send + reply path are stable): Internal command-center UI — Supabase-backed overview (pipeline counts, worker_runs health, QA/enrichment alerts), then Smartlead metrics sync (sends/opens/replies by day/week/month), then bookings join. Auth + RLS; no service keys in browser. De-prioritize visual polish until data correctness is proven."
     status: pending
