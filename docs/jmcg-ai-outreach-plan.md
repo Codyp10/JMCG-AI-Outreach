@@ -1,9 +1,9 @@
 ---
 name: JMCG AI Outreach
-overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; runtime split — Supabase (Postgres + pg_cron + DB webhooks) plus Vercel Pro serverless workers; Smartlead sending; Claude API for intelligence. v2 logic: cost-gated waterfall, phone ≥50, tag-based Leverage Library, 4–5 touches, monthly optimization, QA pass/regenerate, multi-turn reply agent, BLOCKING SMS/voice compliance. Cursor IDE + Claude coding agent. Phase 2: internal command-center dashboard (after core pipeline is built and stable)."
+overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; runtime split — Supabase (Postgres + pg_cron + DB webhooks) plus Vercel Pro serverless workers; Smartlead sending; Claude API for intelligence. v2 logic: cost-gated waterfall, phone ≥50, tag-based Leverage Library, 4–5 touches, monthly optimization, QA pass/regenerate, multi-turn reply agent. US scope: email + voicemail drops + handwritten mail only (no SMS/WhatsApp); BLOCKING legal review for voicemail + direct mail. Cursor IDE + Claude coding agent. Phase 2: internal command-center dashboard (after core pipeline is built and stable)."
 todos:
   - id: supabase-schema
-    content: "Model Supabase tables with v2/v2.1 additions: leads, enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (escalation_reason), cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs; pg_cron HTTP jobs calling Vercel"
+    content: "Model Supabase tables with v2/v2.1 additions: leads (voice_consent for voicemail only; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (escalation_reason), cooldown_queue, channel_dispatch (voicemail + mail only), optimization_log, mailbox_health, worker_runs; pg_cron HTTP jobs calling Vercel"
     status: pending
   - id: smartlead-mapping
     content: "Map 20 mailboxes (18 primary + 2 backup) across 2 domains in Smartlead; set daily caps at floor(178/18)=9 per primary mailbox; configure warmup schedule staggered over 2-4 weeks"
@@ -18,7 +18,7 @@ todos:
     content: "Populate Leverage Library with JMCG case studies; implement tag-based matching (industry_tags, persona_tags, geo, company_archetype); tie-break on strongest metric"
     status: pending
   - id: compliance-review
-    content: "BLOCKING: Legal review for SMS/voicemail/direct mail. Define lawful basis for each channel per region. Add consent collection mechanism. Do NOT activate SMS/voicemail channels until resolved. Add suppression list infrastructure."
+    content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for prerecorded voicemail drops + handwritten/direct mail only; consent/suppression per counsel. Do NOT activate voicemail or mail channels until resolved."
     status: pending
     priority: critical
   - id: monthly-optimization
@@ -38,7 +38,7 @@ isProject: false
 
 # JMCG AI Outreach — Implementation Blueprint (v2.1)
 
-**Assumptions (v2.1):** Enriched **SAM = 16,000** verified contacts. Architecture aligned with **Jordan Platten / Affluent.co**–style automation. Niche/offer/ICP: **Johnson Marketing & Consulting (JMCG)** service verticals—populate case studies before launch. **Runtime:** **Supabase** = database + lightweight scheduling (**pg_cron** HTTP triggers, DB webhooks); **Vercel Pro** = serverless workers (heavy AI + batch jobs); **Smartlead** = sending + webhooks; **Claude API** = model layer. **Cursor** = IDE; **Claude** = coding agent for implementation.
+**Assumptions (v2.1):** Enriched **SAM = 16,000** verified contacts. Architecture aligned with **Jordan Platten / Affluent.co**–style automation. Niche/offer/ICP: **Johnson Marketing & Consulting (JMCG)** service verticals—populate case studies before launch. **Runtime:** **Supabase** = database + lightweight scheduling (**pg_cron** HTTP triggers, DB webhooks); **Vercel Pro** = serverless workers (heavy AI + batch jobs); **Smartlead** = sending + webhooks; **Claude API** = model layer. **Cursor** = IDE; **Claude** = coding agent for implementation. **US outbound channels:** **email** (all scored leads), **voicemail drop** (score ≥ 50), **handwritten letter** (score ≥ 75). **SMS and WhatsApp are not used** (out of scope for legal/operational reasons in the US).
 
 ---
 
@@ -239,18 +239,19 @@ Apply to **each** secondary domain used for outbound:
 
 ## 3. Data & Scoring Blueprint (0–100)
 
-### Purpose — Surround Sound (with compliance prerequisites)
+### Purpose — Multi-channel tiers (email, voicemail, handwritten) — US scope
 
 - **All leads (any score):** Full **email** sequence (see **Section 4** for configurable 4–5 touches).
-- **Score ≥ 50:** Email + **WhatsApp/SMS** (region-dependent) + **voicemail drop** — **only after compliance is cleared** (see below).
-- **Score ≥ 75:** All of the above + **handwritten letter** via `channel_dispatch`.
+- **Score ≥ 50:** Same email sequence **plus** **voicemail drop** (when a direct phone number is available and compliance allows) — **SMS and WhatsApp are not in scope** for US operations.
+- **Score ≥ 75:** All of the above **plus** **handwritten letter** (via `channel_dispatch` / fulfillment vendor).
 
-**BLOCKING prerequisite for SMS/voicemail**
+**BLOCKING prerequisite for voicemail + mail**
 
-- Complete **TCPA/GDPR** (and applicable regional) review **before** activating SMS/voicemail.
-- **Enrichment-sourced phone numbers are not consent.** Define lawful basis (e.g., legitimate interest under GDPR, or an **explicit consent** collection path for TCPA).
-- On `leads`: store `sms_consent`, `voice_consent`, `consent_source`, `consent_date`.
-- **Do not** activate SMS/voicemail until the **compliance-review** TODO is resolved.
+- **SMS and WhatsApp are excluded** from this system (do not implement or route them in `channel_dispatch`).
+- Complete **legal review** (e.g. **TCPA** and state rules for **prerecorded voicemail**, plus direct-mail marketing rules) **before** activating voicemail drops or handwritten mail.
+- **Enrichment-sourced phone numbers are not consent** by themselves; follow counsel-approved **consent / suppression / DNC** handling.
+- On `leads`: store **`voice_consent`** (and optional `consent_source`, `consent_date`) for voicemail where your counsel requires it; **omit `sms_consent`** (no SMS channel).
+- **Do not** activate voicemail or mail channels until the **compliance-review** TODO is resolved.
 
 ### Recommended score model (total 100) — unchanged structure
 
@@ -264,9 +265,9 @@ Apply to **each** secondary domain used for outbound:
 
 **Trigger mapping (`lead_score` + `channel_flags`)**
 
-- Email always (full sequence).
-- Surround-sound channels (SMS/WhatsApp/voicemail) only if score ≥ 50 **and** compliance + consent rules satisfied.
-- Direct mail if score ≥ 75 (plus vendor integration).
+- **Email** always (full sequence).
+- **Voicemail drop** only if score ≥ 50 **and** compliance + consent rules satisfied (no SMS/WhatsApp).
+- **Handwritten / direct mail** if score ≥ 75 (vendor integration).
 
 ### Leverage Library matching (tag-based — no embeddings at JMCG scale)
 
@@ -313,13 +314,13 @@ flowchart LR
   end
   subgraph route [Routing]
     E[Email sequence]
-    M[SMS WA VM]
+    VM[Voicemail drop]
     DM[Handwritten letter]
   end
   L --> P1 --> P2 --> P3 --> S
   S -->|ge 50| PH
   S --> E
-  S -->|ge 50 compliant| M
+  S -->|ge 50 compliant| VM
   S -->|ge 75| DM
 ```
 
@@ -329,7 +330,7 @@ flowchart LR
 
 - `cycle_number` (integer, default **1**)
 - `previous_library_entry_ids` (jsonb array)
-- `sms_consent`, `voice_consent` (boolean, default false)
+- `voice_consent` (boolean, default false) — voicemail drops only (**no SMS**; do not add `sms_consent`)
 - `consent_source` (text, nullable), `consent_date` (timestamptz, nullable)
 - `phone_enriched` (boolean, default false)
 
@@ -471,7 +472,7 @@ Log to **`experiments`** and **`qa_results`** (and related metrics):
 
 - Per **variant:** sends, opens, replies, positive replies, meetings booked, unsubscribes, spam complaints.
 - Per **mailbox:** bounces, spam placement, complaints.
-- Per **channel:** email vs SMS vs voicemail vs direct mail.
+- Per **channel:** email vs voicemail vs handwritten/direct mail (no SMS/WhatsApp).
 - Per **Leverage Library entry:** reply and booking lift by segment.
 
 **Phase 2 — Monthly analysis (automated agent)**
@@ -566,7 +567,7 @@ Populate with **real JMCG case studies and outcomes** before launch.
 - **Claude API (Anthropic):** Copy generation (AIDA), QA gate, reply-agent classification + objections, monthly optimization analysis.
 - **Slack:** Human-queue escalations and monthly optimization summaries.
 - **Enrichment providers:** Invoked from Vercel waterfall workers; configurable chain + **cost cap**.
-- **SMS/WhatsApp/voicemail/direct mail:** Behind **`channel_dispatch`**; **BLOCKING** on compliance before activation.
+- **Voicemail + handwritten/direct mail:** Behind **`channel_dispatch`** (no SMS/WhatsApp); **BLOCKING** on compliance before activation.
 - **Cursor + Claude (development):** **Cursor** = IDE; **Claude** = coding agent to build/maintain workers, prompts, and infra-as-code.
 - **Internal command center (dashboard):** **Phase 2** — see **Section 11**. Not a substitute for building the pipeline first.
 
@@ -590,7 +591,7 @@ Populate with **real JMCG case studies and outcomes** before launch.
 | Human escalation | — | **Triggers + Slack** |
 | Response SLA | “Immediate” | **&lt; 2 minutes** |
 | Cooldown re-entry | New angle | **Re-enrich, re-score, cycle_number, no repeat library IDs** |
-| Compliance | TODO | **BLOCKING for SMS/voice** |
+| Compliance | TODO | **BLOCKING for voicemail + mail; SMS/WA excluded (US)** |
 
 ### v2.1 — Runtime split (addendum)
 
@@ -669,7 +670,7 @@ Only then start the dashboard — first as **functional** pages (correct numbers
 
 **Later (dashboard v2)**  
 - **Experiments** + **`optimization_log`** timeline (monthly self-healing visibility).  
-- **Surround-sound** panels (SMS / voicemail / direct mail cost-per-meeting) once channels are **compliance-cleared**.
+- **Voicemail + mail** panels (cost-per-meeting vs email) once channels are **compliance-cleared** (SMS/WhatsApp not tracked — out of scope).
 
 ### UX / IA sketch (keep utilitarian)
 
