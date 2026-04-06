@@ -3,35 +3,35 @@ name: JMCG AI Outreach
 overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Smartlead + Claude API. Positive-reply metrics; US channels: email, voicemail, handwritten mail only. Cursor + Claude. Phase 2: command-center dashboard."
 todos:
   - id: supabase-schema
-    content: "Model Supabase tables with v2/v2.1 additions: leads (ICP proxy fields: icp_vertical, google_review_count, hiring/ads/FSM flags, icp_disqualification_reason; voice_consent; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (classification per Section 7), cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs; pg_cron → Vercel"
+    content: "DONE in repo: migrations under supabase/migrations/ (leads v2.1 fields, enrichment_runs.cumulative_cost, scores, sequences, messages, qa_results, experiments, replies + Section 7 fields, cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs, atomic claim RPCs, RLS). OPS: apply migrations to your Supabase project (CLI or SQL editor); then wire pg_cron HTTP jobs per docs/pg-cron-vercel.md."
     status: completed
   - id: smartlead-mapping
-    content: "Map 20 mailboxes (18 primary + 2 backup) across 2 domains in Smartlead; set daily caps at floor(178/18)=9 per primary mailbox; configure warmup schedule staggered over 2-4 weeks"
-    status: completed
+    content: "DONE in repo: docs/smartlead-mailbox-mapping.md + seed rows mb_1–mb_20 in mailbox_health (placeholder domains/emails). REMAINING (Smartlead product): create/warm 20 mailboxes on 2 domains, daily cap ~9 per primary, stagger warmup 2–4 weeks; replace placeholder mailbox_id/emails in DB with live Smartlead IDs."
+    status: in_progress
   - id: orchestration-workers
-    content: "Implement Vercel serverless workers + Supabase pg_cron triggers: waterfall enrichment, score, phone-enrich, copy-generate+QA, send-queue, reply-agent webhook, monthly-optimize, cooldown-reentry; idempotent batches; shared-secret auth"
+    content: "DONE in repo: Next.js /api/workers/* (waterfall-enrich stub, score, phone-enrich, copy-generate+QA, send-queue, reply-agent webhook, monthly-optimize snapshot, cooldown-reentry, mailbox-health-check), shared-secret cron auth, worker_runs logging, idempotent SQL claims. REMAINING: real Clay/Lead Magic/Hunter + phone vendors; confirm Smartlead API payloads; optional DB webhook on replies."
     status: completed
   - id: vercel-project-setup
-    content: "Create Vercel Pro project for JMCG outreach workers. Set env vars (Supabase service role, Claude API, Smartlead, enrichment providers, Slack, CRON_SECRET, SMARTLEAD_WEBHOOK_SECRET). Add /api/workers/* routes + auth middleware. Configure Supabase pg_cron HTTP calls with secret header."
-    status: completed
+    content: "DONE in repo: vercel.json (300s workers), .env.example, route structure. REMAINING (ops): create Vercel Pro project, connect repo, set env vars (SUPABASE_*, CRON_SECRET, SMARTLEAD_*, CLAUDE_API_KEY, Slack, enrichment keys); deploy; point Supabase pg_cron at deployment URLs."
+    status: in_progress
   - id: leverage-library
-    content: "Populate Leverage Library with JMCG HVAC case studies (residential HVAC, independent operators); tag-based matching: industry_tags (hvac), persona_tags (owner, GM, marketing), geo, company_archetype (independent_owner_operator); tie-break on strongest metric"
-    status: completed
+    content: "DONE in repo: table + tag-based pick in copy-generate; seed has 2 HVAC-style case studies (industry_tags hvac, personas owner/gm/marketing, independent_owner_operator). REMAINING: replace seeds with real JMCG proofs/metrics; tune tie-break on strongest metric when library grows."
+    status: in_progress
   - id: compliance-review
-    content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for prerecorded voicemail drops + handwritten/direct mail only; consent/suppression per counsel. Do NOT activate voicemail or mail channels until resolved."
+    content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for prerecorded voicemail drops + handwritten/direct mail only; consent/suppression per counsel. Do NOT activate voicemail or mail channels until resolved. See docs/compliance-voicemail-mail.md."
     status: pending
     priority: critical
   - id: monthly-optimization
-    content: "Build monthly self-healing agent: data aggregation, variant comparison on positive reply rate + meeting rate (min 150 sends; Section 7), copy promotion/retirement, new variant generation, mailbox health monitoring, channel ROI check, optimization_log writes, Slack summary notification to Cody"
-    status: pending
+    content: "PARTIAL in repo: monthly-optimize worker writes optimization_log snapshot, aggregates sent/positive reply counts, optional Slack. REMAINING: variant comparison on positive reply + meetings (min 150 sends), promote/retire losers, spawn test variants, channel ROI, auto-apply Phase 3 rules per Section 5."
+    status: in_progress
   - id: reply-agent-v2
-    content: "Build multi-turn reply agent with thread context, 5-exchange persistence cap, human escalation routing, objection playbook templates; classify inbound (OOO vs positive vs automated) and persist reply_classification + counts_as_positive_reply (Section 7)"
-    status: pending
+    content: "PARTIAL in repo: reply-agent webhook persists replies with reply_classification + counts_as_positive_reply (Claude classify when key set); basic escalation keyword → Slack stub. REMAINING: full thread context from Supabase/Smartlead, multi-turn with 5-exchange cap, objection playbooks, complete escalation rules (Section 6), <2 min SLA hardening."
+    status: in_progress
   - id: backup-mailbox-monitoring
-    content: "Implement mailbox_health tracking: auto-pause on bounce >5% or complaint >0.1%, auto-activate backup, log swap to optimization_log"
+    content: "DONE in repo: mailbox_health table + seed; runMailboxHealthSweep + POST /api/workers/mailbox-health-check (pause on bounce >5% or complaint >0.1%, promote backup, log to optimization_log). OPS: schedule cron; feed real bounce/complaint rates from Smartlead or ESP into mailbox_health."
     status: completed
   - id: command-center-dashboard
-    content: "PHASE 2 (after core workers + send + reply path are stable): Internal command-center UI — Supabase-backed overview (pipeline counts, worker_runs health, QA/enrichment alerts), then Smartlead metrics sync (sends/opens/replies by day/week/month), then bookings join. Auth + RLS; no service keys in browser. De-prioritize visual polish until data correctness is proven."
+    content: "PHASE 2 — not started: Internal command-center UI (pipeline counts, worker_runs, QA/enrichment alerts), then Smartlead metrics sync, then bookings. Auth + RLS; no service role in browser. De-prioritize polish until data is correct."
     status: pending
 isProject: false
 ---
