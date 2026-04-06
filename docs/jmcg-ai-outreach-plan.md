@@ -1,9 +1,9 @@
 ---
 name: JMCG AI Outreach
-overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; runtime split — Supabase (Postgres + pg_cron + DB webhooks) plus Vercel Pro serverless workers; Smartlead sending; Claude API for intelligence. v2 logic: cost-gated waterfall, phone ≥50, tag-based Leverage Library, 4–5 touches, monthly optimization, QA pass/regenerate, multi-turn reply agent. US scope: email + voicemail drops + handwritten mail only (no SMS/WhatsApp); BLOCKING legal review for voicemail + direct mail. Cursor IDE + Claude coding agent. Phase 2: internal command-center dashboard (after core pipeline is built and stable)."
+overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; runtime split — Supabase (Postgres + pg_cron + DB webhooks) plus Vercel Pro serverless workers; Smartlead sending; Claude API for intelligence. v2 logic: cost-gated waterfall, phone ≥50, tag-based Leverage Library, 4–5 touches, monthly optimization (positive-reply metrics; OOO/autoresponders excluded), QA pass/regenerate, multi-turn reply agent with reply classification. US scope: email + voicemail drops + handwritten mail only (no SMS/WhatsApp); BLOCKING legal review for voicemail + direct mail. Cursor IDE + Claude coding agent. Phase 2: internal command-center dashboard (after core pipeline is built and stable)."
 todos:
   - id: supabase-schema
-    content: "Model Supabase tables with v2/v2.1 additions: leads (voice_consent for voicemail only; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (escalation_reason), cooldown_queue, channel_dispatch (voicemail + mail only), optimization_log, mailbox_health, worker_runs; pg_cron HTTP jobs calling Vercel"
+    content: "Model Supabase tables with v2/v2.1 additions: leads (voice_consent for voicemail only; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (escalation_reason, reply_classification, counts_as_positive_reply per Section 7), cooldown_queue, channel_dispatch (voicemail + mail only), optimization_log, mailbox_health, worker_runs; pg_cron HTTP jobs calling Vercel"
     status: pending
   - id: smartlead-mapping
     content: "Map 20 mailboxes (18 primary + 2 backup) across 2 domains in Smartlead; set daily caps at floor(178/18)=9 per primary mailbox; configure warmup schedule staggered over 2-4 weeks"
@@ -22,10 +22,10 @@ todos:
     status: pending
     priority: critical
   - id: monthly-optimization
-    content: "Build monthly self-healing agent: data aggregation, variant comparison (min 150 sends), copy promotion/retirement, new variant generation, mailbox health monitoring, channel ROI check, optimization_log writes, Slack summary notification to Cody"
+    content: "Build monthly self-healing agent: data aggregation, variant comparison on positive reply rate + meeting rate (min 150 sends; Section 7), copy promotion/retirement, new variant generation, mailbox health monitoring, channel ROI check, optimization_log writes, Slack summary notification to Cody"
     status: pending
   - id: reply-agent-v2
-    content: "Build multi-turn reply agent with thread context, 5-exchange persistence cap, human escalation routing, objection playbook templates for JMCG service verticals"
+    content: "Build multi-turn reply agent with thread context, 5-exchange persistence cap, human escalation routing, objection playbook templates; classify inbound (OOO vs positive vs automated) and persist reply_classification + counts_as_positive_reply (Section 7)"
     status: pending
   - id: backup-mailbox-monitoring
     content: "Implement mailbox_health tracking: auto-pause on bounce >5% or complaint >0.1%, auto-activate backup, log swap to optimization_log"
@@ -66,7 +66,7 @@ isProject: false
 - **Backup pool:** Maintain **10% warmed backup accounts** at all times; **swap in** when a primary mailbox hits spam or complaint thresholds.
 - **Capacity pacing:** Store `daily_quota_per_mailbox = floor(daily_sends / active_warmed_accounts)` and **rebalance dynamically** as accounts rotate in/out (including backup activation).
 - **Smartlead:** Campaign or partition per mailbox/domain group; align **sending windows** and **daily limits** with provider and Smartlead caps. **Daily caps:** `floor(178 / 18) = 9` sends per primary mailbox (rebalance when backups replace primaries).
-- **Supabase:** See **Section 3** (schema) and **Section 8** (tech stack) for tables and integrations.
+- **Supabase:** See **Section 3** (schema) and **Section 9** (tech stack) for tables and integrations.
 
 ### Projected conversion metrics (conservative)
 
@@ -346,6 +346,9 @@ flowchart LR
 **`replies` — add**
 
 - `escalation_reason` (text, nullable) when routing to human
+- **`reply_classification`** (text or enum) — e.g. `out_of_office`, `automated`, `negative`, `neutral`, `positive`, `meeting_booked` (tune list; see **Section 7**)
+- **`counts_as_positive_reply`** (boolean) — **false** for OOO/automated/unsubscribe; used for experiments and monthly optimization
+- **`classification_confidence`** (numeric, optional); support **manual override** for edge cases
 
 **New: `optimization_log`**
 
@@ -396,7 +399,7 @@ Use as **system + user** template with merged variables:
 You are an expert B2B cold email copywriter. Write ONE outbound email for a single human recipient.
 
 GOALS
-- Maximize reply rate and meeting interest without deception.
+- Maximize **positive** engagement (genuine interest, replies that are not OOO/autoresponders) and **meeting interest** without deception — not raw reply volume for its own sake.
 - Use AIDA: Attention, Interest, Desire, Action.
 - Tie the message to exactly ONE case study from the LEVERAGE_LIBRARY entry provided (do not blend multiple stories).
 - Sound like a thoughtful peer, not marketing blast copy.
@@ -470,15 +473,15 @@ OUTPUT FORMAT (JSON only)
 
 Log to **`experiments`** and **`qa_results`** (and related metrics):
 
-- Per **variant:** sends, opens, replies, positive replies, meetings booked, unsubscribes, spam complaints.
+- Per **variant:** sends, opens, **raw replies**, **positive replies** (per **Section 7** taxonomy), meetings booked, unsubscribes, spam complaints.
 - Per **mailbox:** bounces, spam placement, complaints.
 - Per **channel:** email vs voicemail vs handwritten/direct mail (no SMS/WhatsApp).
-- Per **Leverage Library entry:** reply and booking lift by segment.
+- Per **Leverage Library entry:** **positive** reply and booking lift by segment (Section 7).
 
 **Phase 2 — Monthly analysis (automated agent)**
 
-1. **Copy:** Compare subject, first-line hook, CTA (question vs calendar), and case-study assignment by segment. **Retire** any variant underperforming the leader by **>25% relative** on **reply rate** with **≥ 150 sends**. **Minimum sample 150** — otherwise carry forward.
-2. **Sequence:** Measure **incremental reply rate per touch**. If a touch adds **&lt;0.1%** incremental reply with **≥ 500** sends through that touch, recommend disabling it.
+1. **Copy:** Compare subject, first-line hook, CTA (question vs calendar), and case-study assignment by segment. **Retire** any variant underperforming the leader by **>25% relative** on **positive reply rate** (Section 7 — **not** raw/OOO-inflated replies) with **≥ 150 sends**. **Minimum sample 150** — otherwise carry forward. Use **meeting-booked rate** as a co-primary signal where volume allows.
+2. **Sequence:** Measure **incremental positive reply rate per touch** (Section 7). If a touch adds **&lt;0.1%** incremental **positive** replies with **≥ 500** sends through that touch, recommend disabling it. If positive volume is too low early, fall back to raw replies only with an explicit **“unvalidated”** flag in `optimization_log`.
 3. **Mailbox health:** Flag bounce **>5%** or complaint **>0.1%**; **auto-pause**, **activate backup**, log swap (see **`optimization_log`** + **`mailbox_health`**).
 4. **Channel ROI:** Cost-per-meeting by channel; flag if **&gt;3×** email-only cost-per-meeting.
 
@@ -504,7 +507,7 @@ Log to **`experiments`** and **`qa_results`** (and related metrics):
 - **SLA:** **&lt; 2 minutes** from Smartlead reply **webhook** to **sent** reply.
 - **Context:** Full thread — all prior outbound and inbound messages for the lead.
 - **Multi-turn:** Not single-shot; maintain state across exchanges.
-- **Objection persistence:** Up to **5** back-and-forth exchanges on an objection; if no booking, mark **`objection_exhausted`** and enter **cooldown** (Section 7).
+- **Objection persistence:** Up to **5** back-and-forth exchanges on an objection; if no booking, mark **`objection_exhausted`** and enter **cooldown** (Section 8).
 - **Booking:** One primary calendar link; optional two concrete time windows.
 
 ### Human escalation (Slack notify Cody/Caleb)
@@ -547,7 +550,39 @@ Populate with **real JMCG case studies and outcomes** before launch.
 
 ---
 
-## 7. The 90-Day Cycle & Cooldown
+## 7. Reply classification & positive-only metrics
+
+**Problem:** ESPs and inboxes often auto-reply with **out-of-office (OOO)**, “thanks, I’ll respond when I’m back,” ticketing receipts, or similar. Counting those as generic **“replies”** inflates performance, poisons **A/B tests**, and misleads the **monthly optimization** job.
+
+**Principle:** Distinguish **raw inbound messages** from **metrics-eligible outcomes**. For **copy experiments**, **sequence touch lift**, **Leverage Library comparisons**, and **dashboard KPIs**, treat **positive reply rate** (and **meeting booked**) as the **primary** success signals unless explicitly labeled otherwise.
+
+### Taxonomy (store on each inbound thread / message)
+
+Classify the **first substantive inbound** (and re-classify if the lead sends a follow-up that changes meaning). Suggested categories (adjust in schema as enums):
+
+| Bucket | Examples | Counts as “positive” for optimization? |
+|--------|----------|------------------------------------------|
+| **Out of office / vacation** | “I’m away until …”, auto-reply with return date | **No** — defer sequence (see reply-agent OOO branch); **exclude** from variant win/loss |
+| **Automated / system** | Mail delivery notices, ticket # created, “message received” | **No** |
+| **Unsubscribe / negative** | “Stop”, “not interested”, explicit opt-out | **No** (suppress per rules) |
+| **Neutral / unclear** | One-word ack, ambiguous — needs next turn | **No** until clarified (or use a stricter rule: only count after human or agent confirms intent) |
+| **Positive interest** | Asks a real question, requests a call, “send times”, agrees to chat | **Yes** |
+| **Meeting booked** | Calendar confirmation or explicit book | **Yes** (strongest signal; can be tracked separately) |
+
+**Implementation notes**
+
+- Run classification **on the reply-agent path** (or a dedicated lightweight **Claude** pass) as soon as the inbound text is available; persist to **`replies`** (or linked table): e.g. **`reply_classification`** (enum/text), **`counts_as_positive_reply`** (boolean), optional **`classification_confidence`**. Allow **manual override** in Supabase for edge cases.
+- **Monthly optimization (Section 5):** Use **positive reply rate** (and/or **meeting-booked rate**) for **retiring** underperforming copy variants and comparing hooks/CTAs — **not** raw reply totals. Keep **raw reply count** only as a secondary diagnostic.
+- **Sequence touch lift:** Prefer **incremental positive reply rate** per touch (or meetings attributed to that touch if you attribute them); if data is thin early, document that **raw** is fallback with a warning label.
+- **Reporting / Smartlead sync:** If the provider only exposes **aggregate replies**, plan a **normalization** step in your warehouse (Supabase) using stored classifications so the **command center** does not mirror misleading provider defaults.
+
+### Copy goal alignment (Section 4)
+
+Outbound generation should aim for **good-faith engagement and meetings**, not maximizing **noise replies**. The master prompt **GOALS** should reflect **qualified interest**, not raw reply volume alone (see Section 4).
+
+---
+
+## 8. The 90-Day Cycle & Cooldown
 
 - If **no meeting booked** and the sequence is exhausted, move the lead to **`cooldown_queue`** with **`cooldown_until = now + 90 days`**.
 - On **re-entry:**
@@ -559,7 +594,7 @@ Populate with **real JMCG case studies and outcomes** before launch.
 
 ---
 
-## 8. Tech Stack Wiring
+## 9. Tech Stack Wiring
 
 - **Supabase:** Source of truth for **all data**. **pg_cron** schedules worker triggers via **HTTP** to Vercel. **Database webhooks** (e.g. on `replies` insert) for real-time routing where useful. **No** heavy AI compute inside Supabase.
 - **Vercel (Pro — serverless functions):** All **AI-heavy** and batch workers: enrichment, scoring, copy + QA, send queue, **reply-agent** webhook (**&lt;2 min** SLA), **monthly-optimize**, **cooldown-reentry**. Authenticate with **shared secrets** (`CRON_SECRET`, `SMARTLEAD_WEBHOOK_SECRET`). See **Section 2**.
@@ -569,11 +604,11 @@ Populate with **real JMCG case studies and outcomes** before launch.
 - **Enrichment providers:** Invoked from Vercel waterfall workers; configurable chain + **cost cap**.
 - **Voicemail + handwritten/direct mail:** Behind **`channel_dispatch`** (no SMS/WhatsApp); **BLOCKING** on compliance before activation.
 - **Cursor + Claude (development):** **Cursor** = IDE; **Claude** = coding agent to build/maintain workers, prompts, and infra-as-code.
-- **Internal command center (dashboard):** **Phase 2** — see **Section 11**. Not a substitute for building the pipeline first.
+- **Internal command center (dashboard):** **Phase 2** — see **Section 12**. Not a substitute for building the pipeline first.
 
 ---
 
-## 9. v1 → v2 Summary
+## 10. v1 → v2 Summary
 
 | Area | v1 | v2 |
 |------|----|----|
@@ -605,7 +640,7 @@ Populate with **real JMCG case studies and outcomes** before launch.
 
 ---
 
-## 10. Git & Collaboration Workflow
+## 11. Git & Collaboration Workflow
 
 **Context:** Two developers; **GitHub** is the source of truth. Any AI agent (or automation) touching this repo should follow this workflow.
 
@@ -640,7 +675,7 @@ If a **pull** produces a **merge conflict**, **stop** and surface it to the deve
 
 ---
 
-## 11. Internal Command Center (Dashboard) — Phase 2
+## 12. Internal Command Center (Dashboard) — Phase 2
 
 **Role:** A **logged-in internal hub** that ties the stack together — enrichment → scoring → send → reply → booking — without replacing provider-native UIs (e.g. Smartlead’s own reports stay the deep-dive; this is the **operator’s command center**).
 
@@ -665,7 +700,7 @@ Only then start the dashboard — first as **functional** pages (correct numbers
 - **Mailbox strip:** link **`mailbox_health`** (active / paused / backup) to “why sends dropped.”
 
 **Next (dashboard v1 — add provider + outcomes)**  
-- **Email performance:** sends and, where available, **open rate** and **reply rate** by **day / week / month** — via **scheduled sync** from Smartlead API into Supabase (e.g. `provider_metrics_daily`); **never** call Smartlead from the browser with secrets.  
+- **Email performance:** sends and, where available, **open rate**, **reply rate** (raw), and **positive reply rate** (from **Section 7** classifications in Supabase — do not treat provider “reply” alone as ground truth) by **day / week / month** — via sync/API into Supabase (e.g. `provider_metrics_daily` + joined classifications); **never** call Smartlead from the browser with secrets.  
 - **Bookings:** webhook from scheduling tool (Cal.com, Calendly, CRM) into **`appointments`** (or equivalent), joined to **lead_id**.
 
 **Later (dashboard v2)**  
