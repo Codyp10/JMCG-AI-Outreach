@@ -1,9 +1,9 @@
 ---
 name: JMCG AI Outreach
-overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; runtime split — Supabase (Postgres + pg_cron + DB webhooks) plus Vercel Pro serverless workers; Smartlead sending; Claude API for intelligence. v2 logic: cost-gated waterfall, phone ≥50, tag-based Leverage Library, 4–5 touches, monthly optimization (positive-reply metrics; OOO/autoresponders excluded), QA pass/regenerate, multi-turn reply agent with reply classification. US scope: email + voicemail drops + handwritten mail only (no SMS/WhatsApp); BLOCKING legal review for voicemail + direct mail. Cursor IDE + Claude coding agent. Phase 2: internal command-center dashboard (after core pipeline is built and stable)."
+overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Smartlead + Claude API. Positive-reply metrics; US channels: email, voicemail, handwritten mail only. Cursor + Claude. Phase 2: command-center dashboard."
 todos:
   - id: supabase-schema
-    content: "Model Supabase tables with v2/v2.1 additions: leads (voice_consent for voicemail only; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (escalation_reason, reply_classification, counts_as_positive_reply per Section 7), cooldown_queue, channel_dispatch (voicemail + mail only), optimization_log, mailbox_health, worker_runs; pg_cron HTTP jobs calling Vercel"
+    content: "Model Supabase tables with v2/v2.1 additions: leads (ICP proxy fields: icp_vertical, google_review_count, hiring/ads/FSM flags, icp_disqualification_reason; voice_consent; no SMS), enrichment_runs (cumulative_cost), scores, sequences, messages, qa_results, experiments, replies (classification per Section 7), cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs; pg_cron → Vercel"
     status: pending
   - id: smartlead-mapping
     content: "Map 20 mailboxes (18 primary + 2 backup) across 2 domains in Smartlead; set daily caps at floor(178/18)=9 per primary mailbox; configure warmup schedule staggered over 2-4 weeks"
@@ -15,7 +15,7 @@ todos:
     content: "Create Vercel Pro project for JMCG outreach workers. Set env vars (Supabase service role, Claude API, Smartlead, enrichment providers, Slack, CRON_SECRET, SMARTLEAD_WEBHOOK_SECRET). Add /api/workers/* routes + auth middleware. Configure Supabase pg_cron HTTP calls with secret header."
     status: pending
   - id: leverage-library
-    content: "Populate Leverage Library with JMCG case studies; implement tag-based matching (industry_tags, persona_tags, geo, company_archetype); tie-break on strongest metric"
+    content: "Populate Leverage Library with JMCG HVAC case studies (residential HVAC, independent operators); tag-based matching: industry_tags (hvac), persona_tags (owner, GM, marketing), geo, company_archetype (independent_owner_operator); tie-break on strongest metric"
     status: pending
   - id: compliance-review
     content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for prerecorded voicemail drops + handwritten/direct mail only; consent/suppression per counsel. Do NOT activate voicemail or mail channels until resolved."
@@ -38,7 +38,7 @@ isProject: false
 
 # JMCG AI Outreach — Implementation Blueprint (v2.1)
 
-**Assumptions (v2.1):** Enriched **SAM = 16,000** verified contacts. Architecture aligned with **Jordan Platten / Affluent.co**–style automation. Niche/offer/ICP: **Johnson Marketing & Consulting (JMCG)** service verticals—populate case studies before launch. **Runtime:** **Supabase** = database + lightweight scheduling (**pg_cron** HTTP triggers, DB webhooks); **Vercel Pro** = serverless workers (heavy AI + batch jobs); **Smartlead** = sending + webhooks; **Claude API** = model layer. **Cursor** = IDE; **Claude** = coding agent for implementation. **US outbound channels:** **email** (all scored leads), **voicemail drop** (score ≥ 50), **handwritten letter** (score ≥ 75). **SMS and WhatsApp are not used** (out of scope for legal/operational reasons in the US).
+**Assumptions (v2.1):** Enriched **SAM = 16,000** verified contacts. **Offer:** **Johnson Marketing & Consulting (JMCG)** marketing services. **Launch ICP:** **US residential HVAC** companies in the **$3M–$7M revenue** band (see **Section 3 — Ideal Customer Profile**); qualification uses **proxy signals** (not raw revenue from vendors — often unreliable for private local shops). Architecture aligned with **Jordan Platten / Affluent.co**–style automation. **Runtime:** **Supabase** + **pg_cron** + DB webhooks; **Vercel Pro** workers; **Smartlead**; **Claude API**. **Cursor** = IDE; **Claude** = coding agent. **US outbound channels:** **email**, **voicemail drop** (score ≥ 50), **handwritten letter** (score ≥ 75). **SMS and WhatsApp are not used.**
 
 ---
 
@@ -253,15 +253,62 @@ Apply to **each** secondary domain used for outbound:
 - On `leads`: store **`voice_consent`** (and optional `consent_source`, `consent_date`) for voicemail where your counsel requires it; **omit `sms_consent`** (no SMS channel).
 - **Do not** activate voicemail or mail channels until the **compliance-review** TODO is resolved.
 
-### Recommended score model (total 100) — unchanged structure
+### Ideal Customer Profile (HVAC — launch vertical)
 
-**A. Fit to ICP (0–40)** — Title/seniority (0–12), company size/revenue (0–10), industry/geo (0–10), tech/trigger signals (0–8).
+**Who:** Independent / owner-operated **residential HVAC** (heating & cooling) contractors. **Revenue target:** **$3M–$7M** ideal; **$1M+** acceptable floor when proxies support it. **Not** the primary focus: pure plumbing/mechanical/industrial without residential HVAC positioning, franchise chains at scale, or corporate multi-branch enterprises (see disqualifiers below).
 
-**B. Contact quality (0–25)** — Verified email (0–10), phone/mobile quality (0–8), LinkedIn/social (0–4), toxicity penalty (up to −10, floor 0).
+**Why proxies (not vendor “revenue” fields):** For private local-service HVAC, **revenue and headcount from Apollo / ZoomInfo / Clay are often modeled and unreliable.** Scoring and list-building should prioritize **observable, scrapable signals** that correlate with the target band.
 
-**C. Intent / timing (0–20)** — Intent keywords (0–10), engagement proxy (0–10).
+#### Primary qualification signals (highest confidence — build filters + scoring around these)
 
-**D. Leverage alignment (0–15)** — Match strength vs. **Leverage Library** (see **tag-based matching** below).
+1. **Company name** includes **“Heating & Air,” “Heating & Cooling,”** “Heating and Air Conditioning,” or similar — strong indicator of **residential HVAC** vs generic “mechanical” or plumbing. **Exclude** names dominated by **mechanical / plumbing / industrial** unless HVAC heating/cooling keywords are present.
+2. **Google Business Profile review count** in **250–1,500** (sweet spot for target scale). *&lt;250* → likely too small; *&gt;1,500* → often too large / chain-like — down-rank or disqualify per rules below.
+3. **Active hiring** (Indeed / ZipRecruiter / LinkedIn) for **HVAC technicians, installers, service managers, dispatchers** — growth / capacity intent.
+4. **Paid advertising** — **Google Ads, Local Service Ads (LSAs), and/or Meta** — marketing maturity; mid-tier spenders often map to mid-market HVAC.
+5. **FSM / CRM stack** — **ServiceTitan, Housecall Pro, FieldEdge** (or similar) via **BuiltWith**, job posts, or site clues — operational maturity.
+
+#### Secondary signals (use to prioritize within the list)
+
+Owner face/name still prominent in branding; **professional** site (booking, financing, team); **residential + commercial** mix; **multi-county** service area from one location; **BBB** / **ACCA** / trade associations.
+
+#### Disqualification rules (hard or heavy penalty)
+
+- **Wrong type:** Name is mechanical/plumbing/industrial **without** heating & cooling keywords; **no** residential service story.
+- **Too small:** **&lt;250** reviews, **no** paid ads, template-only site, **no** hiring in **12** months, residential-only micro-shop (use judgment + review band).
+- **Too large:** **&gt;1,500** reviews, many branches / franchise HQ patterns, owner invisible in brand, dominant enterprise ad footprint.
+
+Store disqualification outcome in **`leads.icp_disqualification_reason`** (nullable) when excluding from outreach.
+
+#### Target profile summary (quick reference)
+
+| Dimension | Target |
+|-----------|--------|
+| Industry | HVAC (residential-focused heating & cooling) |
+| Revenue | **$3M–$7M** ideal (proxies); **$1M+** minimum if signals strong |
+| Name | Must align with heating & air / heating & cooling patterns |
+| Reviews | **250–1,500** Google reviews |
+| Growth | Active HVAC-related **job postings** |
+| Marketing | **Google Ads / LSAs / Meta** present |
+| Tech | **ServiceTitan, Housecall Pro, FieldEdge**, or similar |
+| Company type | Independent / owner-led — not national franchise chain |
+
+---
+
+### Recommended score model (total 100) — HVAC launch mapping
+
+**A. Fit to ICP (0–40)** — *HVAC-specific (adjust weights in config if needed)*
+
+- **Company name & category (0–10):** Match to heating & air / cooling patterns; apply **disqualification** penalties (mechanical/plumbing-only, etc.).
+- **Scale proxy — Google reviews (0–10):** Full points for **250–1,500**; partial in band edges; near-zero outside band unless manually overridden.
+- **Decision-maker title (0–10):** Owner, President, GM, Operations, Marketing — at a **qualified** company (not a generic contact at a bad-fit firm).
+- **Geo fit (0–5):** Match to **configurable** target metros/states JMCG serves (populate `lead.geo` + allowlist).
+- **FSM / ops maturity (0–5):** Known **ServiceTitan / Housecall Pro / FieldEdge** (or strong equivalent signal).
+
+**B. Contact quality (0–25)** — Verified work email (0–10), phone quality for voicemail (0–8), LinkedIn/social (0–4), toxicity / role-based penalty (up to −10, floor 0).
+
+**C. Intent / timing (0–20)** — **Active hiring** signal strength for HVAC roles (0–10), **paid ads** presence / depth Google LSA+PPC + Meta (0–10). *Secondary ICP signals (owner branding, site quality) can bump within this bucket or via a small bonus in A — keep total C ≤20.*
+
+**D. Leverage alignment (0–15)** — Tag match vs. **Leverage Library** for **HVAC** case studies, **`company_archetype`** (e.g. independent operator), **`geo`**, **`persona_tags`** (see below).
 
 **Trigger mapping (`lead_score` + `channel_flags`)**
 
@@ -273,13 +320,14 @@ Apply to **each** secondary domain used for outbound:
 
 At **5–15 case studies**, use **tag-based** matching only (revisit embeddings if library **exceeds ~50** entries).
 
-- Each entry: `industry_tags[]`, `persona_tags[]`, `geo`, `company_archetype`.
-- Match against `lead.industry`, `lead.title`, `lead.geo`, `lead.company_size_band`.
-- **Scoring:** exact industry + exact persona → **15**; partial match → **8**; weak → **3**; no match → **0**.
-- **Tie-break:** prefer the entry with the **strongest quantified metric**.
+- Each entry: `industry_tags[]` (e.g. `hvac`, `residential_hvac`), `persona_tags[]` (e.g. `owner`, `gm`, `marketing`), `geo`, `company_archetype` (e.g. `independent_owner_operator`, `multi_county_single_location`).
+- Match against **`lead.icp_vertical`**, normalized **industry**, **title**, **`lead.geo`**, **`lead.fsm_software`**, and review band derived from **`lead.google_review_count`** (250–1,500 = strongest fit for case-study tone).
+- **Scoring:** exact **HVAC** + persona + archetype alignment → **15**; partial → **8**; weak → **3**; no match / disqualified company → **0**.
+- **Tie-break:** prefer the entry with the **strongest quantified metric** (HVAC-specific outcomes).
 
 ### Cost-gated waterfall (apply before provider chain)
 
+- Where budget allows, populate **ICP proxy fields** (Section 3): **Google review count**, **hiring** flags, **paid ad** flags, **FSM** hints — these drive the HVAC rubric; prioritize highest-signal providers first within the cap.
 - Config: **`max_enrichment_cost_per_lead`** (e.g. **$0.15**).
 - Track **cumulative** cost per lead in `enrichment_runs` (see **`cumulative_cost`** below).
 - **Halt** waterfall when the cap is reached, even if email/phone is still missing.
@@ -333,6 +381,12 @@ flowchart LR
 - `voice_consent` (boolean, default false) — voicemail drops only (**no SMS**; do not add `sms_consent`)
 - `consent_source` (text, nullable), `consent_date` (timestamptz, nullable)
 - `phone_enriched` (boolean, default false)
+- **`icp_vertical`** (text, default **`hvac`**) — supports future verticals without schema churn
+- **`google_review_count`** (integer, nullable) — for **250–1,500** band scoring; source: Maps / Outscraper / BrightLocal / Clay
+- **`has_active_hvac_hiring`** (boolean, nullable) — Indeed / Zip / LinkedIn job signals
+- **`runs_google_lsa_or_ppc`** (boolean, nullable), **`runs_meta_ads`** (boolean, nullable) — or merge into `paid_ads_signals` (jsonb) if preferred
+- **`fsm_software`** (text, nullable) — e.g. `service_titan`, `housecall_pro`, `fieldedge`, `unknown`
+- **`icp_disqualification_reason`** (text, nullable) — set when lead fails HVAC ICP rules (do not enroll in active sequences)
 
 **`enrichment_runs` — add**
 
@@ -372,7 +426,7 @@ flowchart LR
 
 ### Leverage Library (data shape in Supabase)
 
-Each asset: `id`, `title`, `industry_tags[]`, `persona_tags[]`, `problem`, `approach`, `metrics`, `quote_snippet`, `constraints`, `geo`, `company_archetype`.
+Each asset: `id`, `title`, `industry_tags[]`, `persona_tags[]`, `problem`, `approach`, `metrics`, `quote_snippet`, `constraints`, `geo`, `company_archetype`. For **HVAC launch**, seed tags like **`hvac`**, **`residential_hvac`**, **`independent_owner_operator`**, and personas **`owner`**, **`gm`**, **`marketing`** so copy matches the ICP in Section 3.
 
 ### Sequence structure (configurable — not fixed 4 touches)
 
@@ -398,6 +452,8 @@ Use as **system + user** template with merged variables:
 ```text
 You are an expert B2B cold email copywriter. Write ONE outbound email for a single human recipient.
 
+CAMPAIGN_ICP (launch): US **residential HVAC** — heating & cooling contractors (independent / owner-led; proxy-qualified per enrichment). Keep tone relevant to **local service / trades** marketing, not generic SaaS.
+
 GOALS
 - Maximize **positive** engagement (genuine interest, replies that are not OOO/autoresponders) and **meeting interest** without deception — not raw reply volume for its own sake.
 - Use AIDA: Attention, Interest, Desire, Action.
@@ -419,6 +475,9 @@ LEAD:
 - Company: {{lead.company}}
 - Industry: {{lead.industry}}
 - Location: {{lead.location}}
+- ICP vertical: {{lead.icp_vertical}} (e.g. hvac)
+- Google review count (if verified): {{lead.google_review_count}}
+- FSM / CRM hint (if verified): {{lead.fsm_software}}
 - Signals: {{lead.signals_json}}
 - Verified facts (from enrichment only): {{lead.verified_facts_json}}
 - Cycle: {{cycle_number}} (re-entry uses a fresh angle vs prior cycles)
@@ -538,9 +597,9 @@ flowchart TD
   H -->|no| D --> MT
 ```
 
-### JMCG objection playbook (structural templates)
+### JMCG objection playbook (structural templates — HVAC vertical)
 
-Populate with **real JMCG case studies and outcomes** before launch.
+Populate with **real JMCG HVAC marketing case studies** (independent operators, review/LSA/CRM outcomes) before launch. Swap generic agency language for **HVAC-specific** proof (seasonality, tech stack, local LSAs, ServiceTitan reporting, etc.) where it strengthens credibility.
 
 1. **“We already have a marketing agency.”** — Acknowledge → pivot to **specific signal/gap** → offer **time-boxed** comparison call.
 2. **“Not interested.”** — Acknowledge → **timing vs permanent no** → if timing, schedule follow-up month; if permanent, **suppress**.
@@ -730,4 +789,4 @@ Avoid custom charting extravagance until **definitions are trusted** (single sou
 
 ## What you should customize next
 
-Lock **JMCG** case studies into the Leverage Library, finalize **ICP weights** within the 0–100 rubric, complete **legal/compliance** and consent capture, wire **Slack** + override workflow for monthly optimization reports, and treat the **command center** as **Phase 2** after the pipeline is proven.
+Lock **HVAC** case studies into the Leverage Library, tune **Section 3** scoring weights against live data, define **geo allowlists** for JMCG’s service markets, complete **legal/compliance** (voicemail + mail), wire **Slack** + override workflow for monthly optimization, and treat the **command center** as **Phase 2** after the pipeline is proven. Add **future verticals** by duplicating the ICP pattern (new `icp_vertical` + rubric slice), not by overloading HVAC rules.
