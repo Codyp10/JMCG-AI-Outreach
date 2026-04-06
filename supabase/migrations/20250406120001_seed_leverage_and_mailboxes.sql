@@ -21,6 +21,7 @@ INSERT INTO public.leverage_library (
   'Tightened Google LSA/PPC structure, built a review cadence tied to ServiceTitan job closes, and aligned landing pages to service-area intent.',
   'Cost per booked lead down 22% in 90 days; review velocity +38%; call answer rate improved with scripted dispatch prompts.',
   'Independent operator; single-location; residential-heavy mix.',
+  NULL,
   'US regional',
   'independent_owner_operator'
 ),
@@ -32,6 +33,7 @@ INSERT INTO public.leverage_library (
   'Mapped campaigns to ServiceTitan campaign tags, built weekly owner dashboard (spend → booked jobs → revenue), reallocated budget to top ZIPs.',
   'Revenue per tech hour +12% over one season; wasted spend in two underperforming ZIPs eliminated.',
   'Requires ServiceTitan or comparable tagging discipline.',
+  NULL,
   'US regional',
   'independent_owner_operator'
 );

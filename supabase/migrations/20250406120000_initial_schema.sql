@@ -286,9 +286,8 @@ CREATE TABLE public.cooldown_queue (
   UNIQUE (lead_id)
 );
 
-CREATE INDEX cooldown_queue_due_idx
-  ON public.cooldown_queue (cooldown_until)
-  WHERE cooldown_until <= now() + interval '365 days';
+-- Partial predicate cannot use now() (not IMMUTABLE); index by due time for cron scans.
+CREATE INDEX cooldown_queue_due_idx ON public.cooldown_queue (cooldown_until);
 
 -- ---------------------------------------------------------------------------
 -- Channel dispatch (voicemail / mail — compliance-gated in app layer)
