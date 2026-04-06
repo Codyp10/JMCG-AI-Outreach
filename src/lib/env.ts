@@ -20,8 +20,8 @@ export function getDbEnv(): DbEnv {
 const fullSchema = dbSchema.extend({
   CRON_SECRET: z.string().min(8),
   CLAUDE_API_KEY: z.string().min(1).optional(),
-  SMARTLEAD_API_KEY: z.string().min(1).optional(),
-  SMARTLEAD_DEFAULT_CAMPAIGN_ID: z.string().min(1).optional(),
+  INSTANTLY_API_KEY: z.string().min(1).optional(),
+  INSTANTLY_DEFAULT_CAMPAIGN_ID: z.string().min(1).optional(),
   SLACK_WEBHOOK_URL: z.string().url().optional(),
   MAX_ENRICHMENT_COST_PER_LEAD: z.coerce.number().positive().default(0.15),
   ENRICHMENT_CLAY_API_KEY: z.string().optional(),

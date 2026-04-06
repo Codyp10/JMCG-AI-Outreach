@@ -3,13 +3,13 @@ name: JMCG AI Outreach
 overview: "JMCG AI Outreach implementation blueprint (v2.2): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Instantly + Claude API. Positive-reply metrics; US channels: email, voicemail, handwritten mail only. Cursor + Claude. Phase 2: command-center dashboard."
 todos:
   - id: supabase-schema
-    content: "DONE in repo: migrations under supabase/migrations/ (leads v2.1 fields, enrichment_runs.cumulative_cost, scores, sequences, messages, qa_results, experiments, replies + Section 7 fields, cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs, atomic claim RPCs, RLS). OPS: apply migrations to your Supabase project (CLI or SQL editor); then wire pg_cron HTTP jobs per docs/pg-cron-vercel.md."
+    content: "DONE in repo: migrations under supabase/migrations/ (core v2.1 tables + 20250407000000 Instantly column renames, 66 mailbox_health slots, daily_cap 10). OPS: apply migrations to your Supabase project (CLI or SQL editor); then wire pg_cron HTTP jobs per docs/pg-cron-vercel.md."
     status: completed
   - id: instantly-setup
-    content: "Set up Instantly Hypergrowth account. Purchase 66 pre-warmed email accounts (~$7/mo each) across 5 secondary domains. Configure daily caps at 10 sends per mailbox. Register reply_received and email_bounced webhooks pointing to Vercel /api/workers/reply-agent and /api/workers/mailbox-health endpoints with auth headers."
+    content: "Set up Instantly Hypergrowth account. Purchase 66 pre-warmed email accounts (~$7/mo each) across 5 secondary domains. Configure daily caps at 10 sends per mailbox. Register reply_received and email_bounced webhooks pointing to Vercel /api/workers/reply-agent and /api/workers/mailbox-health endpoints with auth headers. See docs/instantly-mailbox-mapping.md."
     status: pending
   - id: orchestration-workers
-    content: "DONE in repo: Next.js /api/workers/* (waterfall-enrich stub, score, phone-enrich, copy-generate+QA, send-queue, reply-agent webhook, monthly-optimize snapshot, cooldown-reentry, mailbox-health-check), shared-secret cron auth, worker_runs logging, idempotent SQL claims. REMAINING: real Clay/Lead Magic/Hunter + phone vendors; confirm Instantly API v2 payloads (send-queue + reply endpoint); optional DB webhook on replies."
+    content: "DONE in repo: Next.js /api/workers/* (waterfall-enrich stub, score, phone-enrich, copy-generate+QA, send-queue → Instantly API v2, reply-agent ← Instantly webhooks, monthly-optimize snapshot, cooldown-reentry, mailbox-health + mailbox-health-check), shared-secret cron auth, worker_runs logging, idempotent SQL claims. REMAINING: real Clay/Lead Magic/Hunter + phone vendors; harden Instantly payloads (send-queue + emails/reply); optional DB webhook on replies."
     status: completed
   - id: vercel-project-setup
     content: "DONE in repo: vercel.json (300s workers), .env.example, route structure. REMAINING (ops): create Vercel Pro project, connect repo, set env vars (SUPABASE_*, CRON_SECRET, INSTANTLY_API_KEY, INSTANTLY_WEBHOOK_SECRET, CLAUDE_API_KEY, Slack, enrichment keys); deploy; point Supabase pg_cron at deployment URLs."
@@ -28,7 +28,7 @@ todos:
     content: "PARTIAL in repo: reply-agent webhook persists replies with reply_classification + counts_as_positive_reply (Claude classify when key set); basic escalation keyword → Slack stub. REMAINING: full thread context from Supabase/Instantly, multi-turn with 5-exchange cap, objection playbooks, complete escalation rules (Section 6), <2 min SLA hardening; send replies via Instantly email reply API using email_id from webhook as reply_to_uuid."
     status: in_progress
   - id: backup-mailbox-monitoring
-    content: "DONE in repo: mailbox_health table + seed; runMailboxHealthSweep + POST /api/workers/mailbox-health-check (pause on bounce >5% or complaint >0.1%, promote backup, log to optimization_log). OPS: schedule cron; feed real bounce/complaint rates from Instantly (e.g. email_bounced webhook / API) or ESP into mailbox_health."
+    content: "DONE in repo: mailbox_health table + seed; runMailboxHealthSweep + POST /api/workers/mailbox-health and /api/workers/mailbox-health-check (pause on bounce >5% or complaint >0.1%, promote backup, log to optimization_log). OPS: schedule cron; feed real bounce/complaint rates from Instantly (e.g. email_bounced webhook / API) or ESP into mailbox_health."
     status: completed
   - id: command-center-dashboard
     content: "PHASE 2 — not started: Internal command-center UI (pipeline counts, worker_runs, QA/enrichment alerts), then Instantly metrics sync, then bookings. Auth + RLS; no service role in browser. De-prioritize polish until data is correct."

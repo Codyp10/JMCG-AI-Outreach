@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pushLeadToSmartlead } from "@/lib/integrations/smartlead";
+import { addLeadsToCampaign } from "@/lib/integrations/instantly";
 import { getFullEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCronSecret } from "@/lib/workers/cron-auth";
@@ -8,6 +8,18 @@ import { finishWorkerRun, startWorkerRun } from "@/lib/workers/run-log";
 export const maxDuration = 300;
 
 const BATCH = 25;
+
+function refFromInstantlyResponse(body: unknown, fallback: string): string {
+  if (body && typeof body === "object") {
+    const o = body as Record<string, unknown>;
+    if (typeof o.id === "string") return o.id;
+    if (Array.isArray(o.leads) && o.leads[0] && typeof o.leads[0] === "object") {
+      const first = o.leads[0] as Record<string, unknown>;
+      if (typeof first.id === "string") return first.id;
+    }
+  }
+  return fallback;
+}
 
 export async function POST(request: Request) {
   if (!verifyCronSecret(request)) {
@@ -37,14 +49,14 @@ export async function POST(request: Request) {
     }[];
     batch = rows.length;
 
-    if (!env.SMARTLEAD_API_KEY || !env.SMARTLEAD_DEFAULT_CAMPAIGN_ID) {
+    if (!env.INSTANTLY_API_KEY || !env.INSTANTLY_DEFAULT_CAMPAIGN_ID) {
       for (const m of rows) {
         await supabase
           .from("messages")
           .update({
             status: "qa_pass",
             error_message:
-              "SMARTLEAD_API_KEY or SMARTLEAD_DEFAULT_CAMPAIGN_ID missing — reset to qa_pass for retry.",
+              "INSTANTLY_API_KEY or INSTANTLY_DEFAULT_CAMPAIGN_ID missing — reset to qa_pass for retry.",
             updated_at: new Date().toISOString(),
           })
           .eq("id", m.id);
@@ -53,12 +65,12 @@ export async function POST(request: Request) {
         batchSize: batch,
         successCount: 0,
         errorCount: batch,
-        errorDetails: { reason: "smartlead_not_configured" },
+        errorDetails: { reason: "instantly_not_configured" },
       });
       return NextResponse.json({
         ok: false,
         batch,
-        error: "Smartlead not configured; messages reverted to qa_pass.",
+        error: "Instantly not configured; messages reverted to qa_pass.",
       });
     }
 
@@ -66,29 +78,42 @@ export async function POST(request: Request) {
       try {
         const { data: lead, error: leadErr } = await supabase
           .from("leads")
-          .select("work_email, smartlead_lead_id")
+          .select("work_email, first_name, last_name, company_name, instantly_lead_id")
           .eq("id", m.lead_id)
           .single();
         if (leadErr || !lead?.work_email) {
           throw new Error(leadErr?.message ?? "Lead email missing");
         }
 
-        const result = await pushLeadToSmartlead(env.SMARTLEAD_API_KEY, {
-          campaignId: env.SMARTLEAD_DEFAULT_CAMPAIGN_ID,
-          email: lead.work_email,
-          subject: m.subject,
-          body: m.body,
-        });
+        const result = await addLeadsToCampaign(
+          env.INSTANTLY_API_KEY,
+          env.INSTANTLY_DEFAULT_CAMPAIGN_ID,
+          [
+            {
+              email: lead.work_email,
+              first_name: lead.first_name ?? undefined,
+              last_name: lead.last_name ?? undefined,
+              company_name: lead.company_name ?? undefined,
+              personalization: `${m.subject}\n\n${m.body}`,
+            },
+          ],
+        );
 
         if (!result.ok) {
           throw new Error(result.error);
         }
 
+        const externalRef = refFromInstantlyResponse(
+          result.body,
+          `instantly:${m.id}:${Date.now()}`,
+        );
+
         const { error: upErr } = await supabase
           .from("messages")
           .update({
             status: "sent",
-            smartlead_message_id: result.externalId,
+            instantly_campaign_id: env.INSTANTLY_DEFAULT_CAMPAIGN_ID,
+            instantly_email_id: externalRef,
             error_message: null,
             updated_at: new Date().toISOString(),
           })

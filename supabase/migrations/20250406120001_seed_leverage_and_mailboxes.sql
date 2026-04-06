@@ -1,5 +1,5 @@
--- Seed: Leverage Library (HVAC) + Smartlead mailbox placeholders (20 slots)
--- Replace mailbox_id / emails with real Smartlead values in production.
+-- Seed: Leverage Library (HVAC) + mailbox placeholders (20 rows; superseded by 20250407000000 for v2.2 scale)
+-- Replace mailbox_id / emails with real Instantly values in production.
 
 INSERT INTO public.leverage_library (
   title,

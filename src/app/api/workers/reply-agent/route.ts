@@ -2,21 +2,26 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { postSlackMessage } from "@/lib/integrations/slack";
-import { verifySmartleadWebhook } from "@/lib/workers/cron-auth";
+import { verifyInstantlyWebhook } from "@/lib/workers/cron-auth";
 import { finishWorkerRun, startWorkerRun } from "@/lib/workers/run-log";
 
 export const maxDuration = 300;
 
-type InboundPayload = {
-  lead_id?: string;
-  email?: string;
-  message?: string;
-  body?: string;
-  text?: string;
-  thread_id?: string;
-  event_id?: string;
-  smartlead_event_id?: string;
-};
+function pickStr(obj: Record<string, unknown>, key: string): string | undefined {
+  const v = obj[key];
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/** Flatten Instantly webhook body (may be nested under `data` / `payload`). */
+function unwrapWebhookPayload(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") return {};
+  const root = raw as Record<string, unknown>;
+  const inner = root.data ?? root.payload ?? root.body;
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    return inner as Record<string, unknown>;
+  }
+  return root;
+}
 
 async function classifyReply(
   apiKey: string,
@@ -81,7 +86,7 @@ function sanitizeReplyClassification(raw: string): string {
 }
 
 export async function POST(request: Request) {
-  if (!verifySmartleadWebhook(request)) {
+  if (!verifyInstantlyWebhook(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -89,18 +94,30 @@ export async function POST(request: Request) {
   const runId = await startWorkerRun(supabase, "reply-agent");
 
   try {
-    const json = (await request.json().catch(() => ({}))) as InboundPayload;
-    const text =
-      json.message ?? json.body ?? json.text ?? json.email ?? "";
-    const eventId =
-      json.smartlead_event_id ?? json.event_id ?? `evt_${Date.now()}`;
+    const rawJson = await request.json().catch(() => ({}));
+    const json = unwrapWebhookPayload(rawJson);
 
-    let leadId = json.lead_id;
-    if (!leadId && json.email) {
+    const text =
+      pickStr(json, "reply_text") ??
+      pickStr(json, "message") ??
+      pickStr(json, "body") ??
+      pickStr(json, "text") ??
+      "";
+
+    const eventId =
+      pickStr(json, "email_id") ??
+      pickStr(json, "event_id") ??
+      `evt_${Date.now()}`;
+
+    const fromAddress =
+      pickStr(json, "lead_email") ?? pickStr(json, "email") ?? null;
+
+    let leadId = pickStr(json, "lead_id");
+    if (!leadId && fromAddress) {
       const { data: lead } = await supabase
         .from("leads")
         .select("id")
-        .eq("work_email", json.email)
+        .eq("work_email", fromAddress)
         .maybeSingle();
       leadId = lead?.id as string | undefined;
     }
@@ -139,8 +156,8 @@ export async function POST(request: Request) {
     const { error: insErr } = await supabase.from("replies").insert({
       lead_id: leadId,
       inbound_body: text || null,
-      from_address: json.email ?? null,
-      smartlead_event_id: eventId,
+      from_address: fromAddress,
+      instantly_event_id: eventId,
       reply_classification: reply_classification as
         | "out_of_office"
         | "automated"
@@ -166,13 +183,13 @@ export async function POST(request: Request) {
       throw new Error(insErr.message);
     }
 
-    if (/human|manager|lawsuit|sue/i.test(text)) {
+    if (text && /human|manager|lawsuit|sue/i.test(text)) {
       await supabase
         .from("replies")
         .update({
           escalation_reason: "keyword_escalation_stub",
         })
-        .eq("smartlead_event_id", eventId);
+        .eq("instantly_event_id", eventId);
 
       const slackUrl = process.env.SLACK_WEBHOOK_URL;
       if (slackUrl) {

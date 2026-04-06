@@ -16,17 +16,20 @@ export function verifyCronSecret(request: Request): boolean {
   return alt === secret;
 }
 
-export function verifySmartleadWebhook(request: Request): boolean {
-  const expected = process.env.SMARTLEAD_WEBHOOK_SECRET;
+/** Instantly webhooks: register with custom header `Authorization: Bearer <secret>`. */
+export function verifyInstantlyWebhook(request: Request): boolean {
+  const expected = process.env.INSTANTLY_WEBHOOK_SECRET;
   if (!expected) return false;
 
-  const header =
-    request.headers.get("x-smartlead-signature") ??
-    request.headers.get("x-webhook-secret") ??
-    request.headers.get("authorization");
-
-  if (header?.startsWith("Bearer ")) {
-    return header.slice(7) === expected;
+  const header = request.headers.get("authorization");
+  if (header) {
+    const m = BEARER.exec(header);
+    if (m?.[1] === expected) return true;
+    if (header === expected) return true;
   }
-  return header === expected;
+
+  return (
+    request.headers.get("x-webhook-secret") === expected ||
+    request.headers.get("x-instantly-signature") === expected
+  );
 }

@@ -17,10 +17,10 @@ Send header **`Authorization: Bearer <CRON_SECRET>`** or **`x-cron-secret: <CRON
 | Send queue | POST | `/api/workers/send-queue` |
 | Cooldown re-entry | POST | `/api/workers/cooldown-reentry` |
 | Monthly optimize | POST | `/api/workers/monthly-optimize` |
-| Mailbox health | POST | `/api/workers/mailbox-health-check` |
+| Mailbox health | POST | `/api/workers/mailbox-health` or `/api/workers/mailbox-health-check` |
 | Smoke test | POST | `/api/cron-receiver` |
 
-**Reply agent (Smartlead webhook):** `POST /api/workers/reply-agent` — use `SMARTLEAD_WEBHOOK_SECRET` (header contract must match what Smartlead sends; adjust `verifySmartleadWebhook` in code if needed).
+**Reply agent (Instantly `reply_received` webhook):** `POST /api/workers/reply-agent` — register the webhook with **`Authorization: Bearer <INSTANTLY_WEBHOOK_SECRET>`** (see `verifyInstantlyWebhook` in `src/lib/workers/cron-auth.ts`).
 
 ## Example (HTTP extension)
 
