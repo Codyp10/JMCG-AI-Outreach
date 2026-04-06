@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { HIGH_TOUCH_MIN_SCORE } from "@/lib/scoring/hvac-rubric";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCronSecret } from "@/lib/workers/cron-auth";
 import { finishWorkerRun, startWorkerRun } from "@/lib/workers/run-log";
@@ -7,6 +8,11 @@ export const maxDuration = 300;
 
 const BATCH = 25;
 
+/**
+ * Score-gated phone enrichment: updates `leads.phone` when a vendor returns a number.
+ * For manual calling only — this app does not dial or send voicemail.
+ * Only runs after `handwritten-enqueue` has created a `channel_dispatch` row (same tier as `HIGH_TOUCH_MIN_SCORE`).
+ */
 export async function POST(request: Request) {
   if (!verifyCronSecret(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,7 +28,7 @@ export async function POST(request: Request) {
   try {
     const { data: claimed, error: claimError } = await supabase.rpc(
       "claim_leads_for_phone_enrich",
-      { p_batch: BATCH },
+      { p_batch: BATCH, p_min_score: HIGH_TOUCH_MIN_SCORE },
     );
     if (claimError) throw new Error(claimError.message);
 
@@ -31,20 +37,19 @@ export async function POST(request: Request) {
 
     for (const lead of rows) {
       try {
-        const phone =
-          lead.phone?.trim() ||
-          null;
+        const phone = lead.phone?.trim() || null;
 
         const { error: runErr } = await supabase.from("enrichment_runs").insert({
           lead_id: lead.id,
-          provider_order: "phone_enrichment",
+          provider_order: "phone_enrichment_manual_tier",
           status: "complete",
           cost: 0,
           cumulative_cost: 0,
           payload: {
             note:
-              "Placeholder: attach phone vendor (Lead Magic / Clay) when API keys are set.",
+              "Manual-dial-only: wire Lead Magic / Clay / etc. when API keys are set. No auto-dial.",
             resolved_phone: phone,
+            min_score: HIGH_TOUCH_MIN_SCORE,
           },
         });
         if (runErr) throw new Error(runErr.message);
@@ -82,7 +87,13 @@ export async function POST(request: Request) {
       errorCount: errors,
     });
 
-    return NextResponse.json({ ok: true, batch, success, errors });
+    return NextResponse.json({
+      ok: true,
+      batch,
+      success,
+      errors,
+      min_score: HIGH_TOUCH_MIN_SCORE,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await finishWorkerRun(supabase, runId, {

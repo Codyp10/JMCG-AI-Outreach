@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   generateEmailCopy,
   runQaGate,
-} from "@/lib/claude/email-copy";
+} from "@/lib/gemini/email-copy";
 import { getFullEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCronSecret } from "@/lib/workers/cron-auth";
@@ -82,8 +82,11 @@ export async function POST(request: Request) {
         let regenerationAttempt = 1;
         let verdict: "pass" | "regenerate" | "failed_qa" = "pass";
 
-        if (env.CLAUDE_API_KEY) {
-          let out = await generateEmailCopy(env.CLAUDE_API_KEY, {
+        const geminiModel =
+          env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+
+        if (env.GEMINI_API_KEY) {
+          let out = await generateEmailCopy(env.GEMINI_API_KEY, geminiModel, {
             leadJson: lead as unknown as Record<string, unknown>,
             libraryEntryJson: library as unknown as Record<string, unknown>,
             touchIndex: job.touch_index,
@@ -97,7 +100,8 @@ export async function POST(request: Request) {
 
           while (regenerationAttempt <= 3) {
             verdict = await runQaGate(
-              env.CLAUDE_API_KEY,
+              env.GEMINI_API_KEY,
+              geminiModel,
               subject,
               body,
               (lead.verified_facts_json as Record<string, unknown>) ?? {},
@@ -106,7 +110,7 @@ export async function POST(request: Request) {
             if (verdict !== "regenerate") break;
             regenerationAttempt++;
             if (regenerationAttempt > 3) break;
-            out = await generateEmailCopy(env.CLAUDE_API_KEY, {
+            out = await generateEmailCopy(env.GEMINI_API_KEY, geminiModel, {
               leadJson: lead as unknown as Record<string, unknown>,
               libraryEntryJson: library as unknown as Record<string, unknown>,
               touchIndex: job.touch_index,
@@ -188,7 +192,7 @@ export async function POST(request: Request) {
           message_id: inserted.id,
           verdict: "pass",
           regeneration_attempt: Math.min(regenerationAttempt, 3),
-          details: { mode: env.CLAUDE_API_KEY ? "claude" : "stub" },
+          details: { mode: env.GEMINI_API_KEY ? "gemini" : "stub" },
         });
 
         const newPrev = [...new Set([...prevIds, libraryEntryId])];

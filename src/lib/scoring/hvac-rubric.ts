@@ -3,6 +3,9 @@
  * Weights are configurable here; tune against live data.
  */
 
+/** Handwritten-mail tier and optional phone scrape (DB only — no auto-dial). */
+export const HIGH_TOUCH_MIN_SCORE = 75;
+
 export type LeadScoreInput = {
   companyName: string | null;
   googleReviewCount: number | null;
@@ -143,12 +146,10 @@ export function scoreHvacLead(input: LeadScoreInput): LeadScoreResult {
 
 export function channelFlagsForScore(total: number): {
   email: boolean;
-  voicemail_drop: boolean;
   handwritten_mail: boolean;
 } {
   return {
     email: true,
-    voicemail_drop: total >= 50,
-    handwritten_mail: total >= 75,
+    handwritten_mail: total >= HIGH_TOUCH_MIN_SCORE,
   };
 }

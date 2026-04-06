@@ -12,7 +12,8 @@ Send header **`Authorization: Bearer <CRON_SECRET>`** or **`x-cron-secret: <CRON
 |-----|--------|------|
 | Enrichment | POST | `/api/workers/waterfall-enrich` |
 | Scoring | POST | `/api/workers/score` |
-| Phone enrich | POST | `/api/workers/phone-enrich` |
+| Handwritten enqueue | POST | `/api/workers/handwritten-enqueue` | same tier as `HIGH_TOUCH_MIN_SCORE`; inserts `channel_dispatch` **before** phone enrich |
+| Phone enrich (manual dial tier) | POST | `/api/workers/phone-enrich` | only after handwritten row exists; writes `leads.phone` — no auto-dial |
 | Copy + QA | POST | `/api/workers/copy-generate` |
 | Send queue | POST | `/api/workers/send-queue` |
 | Cooldown re-entry | POST | `/api/workers/cooldown-reentry` |
@@ -22,18 +23,48 @@ Send header **`Authorization: Bearer <CRON_SECRET>`** or **`x-cron-secret: <CRON
 
 **Reply agent (Instantly `reply_received` webhook):** `POST /api/workers/reply-agent` — register the webhook with **`Authorization: Bearer <INSTANTLY_WEBHOOK_SECRET>`** (see `verifyInstantlyWebhook` in `src/lib/workers/cron-auth.ts`).
 
-## Example (HTTP extension)
+## Storing `CRON_SECRET` in Supabase Vault
+
+A secret named **`vercel_cron_secret`** can hold the same value as Vercel’s **`CRON_SECRET`**. In SQL (run once if you manage secrets yourself):
 
 ```sql
--- Illustrative only — use your project URL and store the secret in Vault / settings.
+SELECT vault.create_secret(
+  'YOUR_HEX_SECRET'::text,
+  'vercel_cron_secret'::text,
+  'Bearer token for Vercel worker POSTs'::text,
+  NULL::uuid
+);
+```
+
+Read it when calling workers (must match Vercel env exactly):
+
+```sql
+SELECT decrypted_secret
+FROM vault.decrypted_secrets
+WHERE name = 'vercel_cron_secret'
+LIMIT 1;
+```
+
+## Example (`pg_net` / `net.http_post`)
+
+Enable **pg_net** (and **pg_cron**) in Supabase if not already. Use your real Vercel URL:
+
+```sql
 SELECT net.http_post(
   url := 'https://YOUR_PROJECT.vercel.app/api/workers/waterfall-enrich',
   headers := jsonb_build_object(
     'Content-Type', 'application/json',
-    'Authorization', 'Bearer ' || current_setting('app.cron_secret', true)
+    'Authorization', 'Bearer ' || (
+      SELECT decrypted_secret
+      FROM vault.decrypted_secrets
+      WHERE name = 'vercel_cron_secret'
+      LIMIT 1
+    )
   ),
   body := '{}'::jsonb
 );
 ```
 
 Configure schedules per plan (e.g. enrich every 10 min, send every 2 min). Use **Vercel Pro** for **300s** timeouts on worker routes.
+
+**Order:** Run **`handwritten-enqueue` before `phone-enrich`** (same cron interval is fine if handwritten runs first — e.g. two `net.http_post` calls in one pg_cron job, or schedule handwritten a few minutes earlier).

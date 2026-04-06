@@ -19,7 +19,10 @@ export function getDbEnv(): DbEnv {
 
 const fullSchema = dbSchema.extend({
   CRON_SECRET: z.string().min(8),
-  CLAUDE_API_KEY: z.string().min(1).optional(),
+  /** Google AI Studio / Gemini API — copy-generate + reply-agent classification */
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  /** e.g. gemini-2.5-flash — empty uses built-in default in workers */
+  GEMINI_MODEL: z.string().optional(),
   INSTANTLY_API_KEY: z.string().min(1).optional(),
   INSTANTLY_DEFAULT_CAMPAIGN_ID: z.string().min(1).optional(),
   SLACK_WEBHOOK_URL: z.string().url().optional(),

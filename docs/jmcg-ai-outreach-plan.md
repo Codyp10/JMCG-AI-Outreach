@@ -1,31 +1,31 @@
 ---
 name: JMCG AI Outreach
-overview: "JMCG AI Outreach implementation blueprint (v2.2): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Instantly + Claude API. Positive-reply metrics; US channels: email, voicemail, handwritten mail only. Cursor + Claude. Phase 2: command-center dashboard."
+overview: "JMCG AI Outreach implementation blueprint (v2.2): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Instantly + Gemini API. Positive-reply metrics; US channels: email + handwritten mail for top scores (no calls or voicemail). Cursor + Claude. Phase 2: command-center dashboard."
 todos:
   - id: supabase-schema
-    content: "DONE in repo: migrations under supabase/migrations/ (core v2.1 tables + 20250407000000 Instantly column renames, 66 mailbox_health slots, daily_cap 10). OPS: apply migrations to your Supabase project (CLI or SQL editor); then wire pg_cron HTTP jobs per docs/pg-cron-vercel.md."
+    content: "DONE in repo: migrations (… + 20260407210000 phone-enrich columns + 20260408120000 handwritten dispatch before phone, unique lead+channel); OPS: apply migrations; wire pg_cron (handwritten-enqueue before phone-enrich) per docs/pg-cron-vercel.md."
     status: completed
   - id: instantly-setup
     content: "Set up Instantly Hypergrowth account. Purchase 66 pre-warmed email accounts (~$7/mo each) across 5 secondary domains. Configure daily caps at 10 sends per mailbox. Register reply_received and email_bounced webhooks pointing to Vercel /api/workers/reply-agent and /api/workers/mailbox-health endpoints with auth headers. See docs/instantly-mailbox-mapping.md."
     status: pending
   - id: orchestration-workers
-    content: "DONE in repo: Next.js /api/workers/* (waterfall-enrich stub, score, phone-enrich, copy-generate+QA, send-queue → Instantly API v2, reply-agent ← Instantly webhooks, monthly-optimize snapshot, cooldown-reentry, mailbox-health + mailbox-health-check), shared-secret cron auth, worker_runs logging, idempotent SQL claims. REMAINING: real Clay/Lead Magic/Hunter + phone vendors; harden Instantly payloads (send-queue + emails/reply); optional DB webhook on replies."
+    content: "DONE in repo: Next.js /api/workers/* (… handwritten-enqueue → channel_dispatch, then phone-enrich after dispatch exists, copy-generate+QA, send-queue, reply-agent, …). REMAINING: mail vendor + phone vendor APIs; harden Instantly payloads."
     status: completed
   - id: vercel-project-setup
-    content: "DONE in repo: vercel.json (300s workers), .env.example, route structure. REMAINING (ops): create Vercel Pro project, connect repo, set env vars (SUPABASE_*, CRON_SECRET, INSTANTLY_API_KEY, INSTANTLY_WEBHOOK_SECRET, CLAUDE_API_KEY, Slack, enrichment keys); deploy; point Supabase pg_cron at deployment URLs."
+    content: "DONE in repo: vercel.json (300s workers), .env.example, route structure. REMAINING (ops): create Vercel Pro project, connect repo, set env vars (SUPABASE_*, CRON_SECRET, INSTANTLY_API_KEY, INSTANTLY_WEBHOOK_SECRET, GEMINI_API_KEY, Slack, enrichment keys); deploy; point Supabase pg_cron at deployment URLs."
     status: in_progress
   - id: leverage-library
     content: "DONE in repo: table + tag-based pick in copy-generate; seed has 2 HVAC-style case studies (industry_tags hvac, personas owner/gm/marketing, independent_owner_operator). REMAINING: replace seeds with real JMCG proofs/metrics; tune tie-break on strongest metric when library grows."
     status: in_progress
   - id: compliance-review
-    content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for prerecorded voicemail drops + handwritten/direct mail only; consent/suppression per counsel. Do NOT activate voicemail or mail channels until resolved. See docs/compliance-voicemail-mail.md."
+    content: "BLOCKING (US): SMS/WhatsApp out of scope. Legal review for handwritten/direct mail before activating channel_dispatch; consent/suppression per counsel. See docs/compliance-handwritten-mail.md."
     status: pending
     priority: critical
   - id: monthly-optimization
     content: "PARTIAL in repo: monthly-optimize worker writes optimization_log snapshot, aggregates sent/positive reply counts, optional Slack. REMAINING: variant comparison on positive reply + meetings (min 150 sends), promote/retire losers, spawn test variants, channel ROI, auto-apply Phase 3 rules per Section 5."
     status: in_progress
   - id: reply-agent-v2
-    content: "PARTIAL in repo: reply-agent webhook persists replies with reply_classification + counts_as_positive_reply (Claude classify when key set); basic escalation keyword → Slack stub. REMAINING: full thread context from Supabase/Instantly, multi-turn with 5-exchange cap, objection playbooks, complete escalation rules (Section 6), <2 min SLA hardening; send replies via Instantly email reply API using email_id from webhook as reply_to_uuid."
+    content: "PARTIAL in repo: reply-agent webhook persists replies with reply_classification + counts_as_positive_reply (Gemini classify when key set); basic escalation keyword → Slack stub. REMAINING: full thread context from Supabase/Instantly, multi-turn with 5-exchange cap, objection playbooks, complete escalation rules (Section 6), <2 min SLA hardening; send replies via Instantly email reply API using email_id from webhook as reply_to_uuid."
     status: in_progress
   - id: backup-mailbox-monitoring
     content: "DONE in repo: mailbox_health table + seed; runMailboxHealthSweep + POST /api/workers/mailbox-health and /api/workers/mailbox-health-check (pause on bounce >5% or complaint >0.1%, promote backup, log to optimization_log). OPS: schedule cron; feed real bounce/complaint rates from Instantly (e.g. email_bounced webhook / API) or ESP into mailbox_health."
@@ -38,7 +38,7 @@ isProject: false
 
 # JMCG AI Outreach — Implementation Blueprint (v2.2)
 
-**Assumptions (v2.2):** Enriched **SAM = 16,000** verified contacts. **Offer:** **Johnson Marketing & Consulting (JMCG)** marketing services. **Launch ICP:** **US residential HVAC** companies in the **$3M–$7M revenue** band (see **Section 3 — Ideal Customer Profile**); qualification uses **proxy signals** (not raw revenue from vendors — often unreliable for private local shops). Architecture aligned with **Jordan Platten / Affluent.co**–style automation. **Runtime:** **Supabase** + **pg_cron** + DB webhooks; **Vercel Pro** workers; **Instantly**; **Claude API**. **Cursor** = IDE; **Claude** = coding agent. **US outbound channels:** **email**, **voicemail drop** (score ≥ 50), **handwritten letter** (score ≥ 75). **SMS and WhatsApp are not used.**
+**Assumptions (v2.2):** Enriched **SAM = 16,000** verified contacts. **Offer:** **Johnson Marketing & Consulting (JMCG)** marketing services. **Launch ICP:** **US residential HVAC** companies in the **$3M–$7M revenue** band (see **Section 3 — Ideal Customer Profile**); qualification uses **proxy signals** (not raw revenue from vendors — often unreliable for private local shops). Architecture aligned with **Jordan Platten / Affluent.co**–style automation. **Runtime:** **Supabase** + **pg_cron** + DB webhooks; **Vercel Pro** workers; **Instantly**; **Gemini API**. **Cursor** = IDE; AI coding agent for development. **US outbound channels:** **email** for all qualified leads; **handwritten letter** for score ≥ 75 (via `channel_dispatch` when compliance allows). **Calls, voicemail drops, SMS, and WhatsApp are not used.**
 
 ---
 
@@ -113,7 +113,7 @@ Apply to **each** secondary domain used for outbound:
 
 ## 2. Runtime Architecture — Supabase + Vercel
 
-**Principle:** **Supabase** owns **data** and **scheduling**. **Vercel** owns **compute**. **Instantly** owns **sending**. **Claude API** owns **intelligence**.
+**Principle:** **Supabase** owns **data** and **scheduling**. **Vercel** owns **compute**. **Instantly** owns **sending**. **Gemini API** owns **intelligence**.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -154,18 +154,12 @@ Apply to **each** secondary domain used for outbound:
 │    Pull enriched-but-unscored leads                     │
 │    Apply 0-100 rubric                                   │
 │    Write scores, set channel_flags                      │
-│    Trigger phone enrichment for score >= 50             │
-│                                                         │
-│  /api/workers/phone-enrich                              │
-│    Pull leads with score >= 50 and phone_enriched=false │
-│    Run phone provider(s)                                │
-│    Write back to enrichment_runs + leads                │
 │                                                         │
 │  /api/workers/copy-generate                             │
 │    Pull leads ready for next touch                      │
 │    Match leverage library entry (tag-based)             │
-│    Call Claude API — generate email (AIDA prompt)       │
-│    Call Claude API — QA gate                            │
+│    Call Gemini API — generate email (AIDA prompt)       │
+│    Call Gemini API — QA gate                            │
 │    Pass → write to messages (queued for send)           │
 │    Regenerate → retry up to 3x, then failed_qa          │
 │                                                         │
@@ -177,7 +171,7 @@ Apply to **each** secondary domain used for outbound:
 │  /api/workers/reply-agent                               │
 │    Triggered by Instantly reply_received webhook        │
 │    Load full thread context from Supabase               │
-│    Classify intent via Claude API                       │
+│    Classify intent via Gemini API                       │
 │    Check escalation triggers → Slack if hit             │
 │    Otherwise run objection playbook (multi-turn)        │
 │    Send reply via Instantly email reply API             │
@@ -215,10 +209,10 @@ Apply to **each** secondary domain used for outbound:
 
 ### Worker design rules
 
-- **Batch size:** Each invocation processes a configurable batch (e.g. **10–25** leads). Stays under Vercel’s **300s** limit with multiple Claude round-trips. If the queue exceeds one batch, process a batch and return; **pg_cron** fires again on the next interval for the remainder.
+- **Batch size:** Each invocation processes a configurable batch (e.g. **10–25** leads). Stays under Vercel’s **300s** limit with multiple Gemini round-trips. If the queue exceeds one batch, process a batch and return; **pg_cron** fires again on the next interval for the remainder.
 - **Idempotency:** Workers must be **idempotent**. On timeout/failure mid-batch, the next run continues safely. Use row **status** fields (e.g. `enrichment_status = 'pending' | 'in_progress' | 'complete' | 'failed'`) and **atomic** `UPDATE … RETURNING` to claim work and avoid duplicate processing.
 - **Auth:** All Vercel endpoints require a **shared secret** (env on Supabase + Vercel). **pg_cron** HTTP calls and **Instantly** webhooks send the secret in a header (register webhooks with e.g. `{"Authorization": "Bearer <INSTANTLY_WEBHOOK_SECRET>"}`); **middleware** rejects unauthorized requests.
-- **Error handling:** On transient failure (Claude timeout, provider **500**), retry the **individual lead** up to **2×** in the same invocation. On persistent failure, mark **`failed`** with an error message and continue — do not block the batch.
+- **Error handling:** On transient failure (Gemini timeout, provider **500**), retry the **individual lead** up to **2×** in the same invocation. On persistent failure, mark **`failed`** with an error message and continue — do not block the batch.
 - **Logging:** Log each invocation to **`worker_runs`** in Supabase: `worker_name`, `started_at`, `completed_at`, `batch_size`, `success_count`, `error_count`, `error_details` (jsonb).
 
 ### pg_cron schedule (defaults — configurable)
@@ -227,7 +221,8 @@ Apply to **each** secondary domain used for outbound:
 |-----|----------|-----------------|-------|
 | Enrichment batch | Every **10** min | `/api/workers/waterfall-enrich` | e.g. **20** leads per batch |
 | Scoring batch | Every **10** min | `/api/workers/score` | e.g. **50** leads per batch |
-| Phone enrichment | Every **15** min | `/api/workers/phone-enrich` | score ≥ 50, `phone_enriched=false` |
+| Handwritten enqueue | Every **15** min | `/api/workers/handwritten-enqueue` | `HIGH_TOUCH_MIN_SCORE` (**75**); creates `channel_dispatch` — run **before** phone enrich |
+| Phone enrich (manual dial) | Every **15** min | `/api/workers/phone-enrich` | after handwritten row exists; same score tier; writes `leads.phone` only |
 | Copy generation | Every **15** min | `/api/workers/copy-generate` | e.g. **10** leads per batch (heaviest) |
 | Send queue flush | Every **2** min | `/api/workers/send-queue` | approved → Instantly API v2 |
 | Reply agent | **Webhook** (real-time) | `/api/workers/reply-agent` | Instantly `reply_received` → Vercel |
@@ -240,7 +235,7 @@ Apply to **each** secondary domain used for outbound:
 |----------|---------|
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side access (not anon key) |
-| `CLAUDE_API_KEY` | Anthropic — copy, QA, reply agent, optimization |
+| `GEMINI_API_KEY` | Google Gemini — copy, QA, reply agent classification |
 | `INSTANTLY_API_KEY` | Instantly API v2 — send + campaigns (Bearer token, not query param) |
 | `CRON_SECRET` | Shared secret for pg_cron → Vercel |
 | `INSTANTLY_WEBHOOK_SECRET` | Validate Instantly webhooks (custom header on webhook registration) |
@@ -262,19 +257,16 @@ Apply to **each** secondary domain used for outbound:
 
 ## 3. Data & Scoring Blueprint (0–100)
 
-### Purpose — Multi-channel tiers (email, voicemail, handwritten) — US scope
+### Purpose — Multi-channel tiers (email, handwritten) — US scope
 
 - **All leads (any score):** Full **email** sequence (see **Section 4** for configurable 4–5 touches).
-- **Score ≥ 50:** Same email sequence **plus** **voicemail drop** (when a direct phone number is available and compliance allows) — **SMS and WhatsApp are not in scope** for US operations.
-- **Score ≥ 75:** All of the above **plus** **handwritten letter** (via `channel_dispatch` / fulfillment vendor).
+- **Score ≥ 75:** Same email sequence **plus** **handwritten letter** (via `channel_dispatch` / fulfillment vendor) when compliance allows.
 
-**BLOCKING prerequisite for voicemail + mail**
+**BLOCKING prerequisite for mail**
 
-- **SMS and WhatsApp are excluded** from this system (do not implement or route them in `channel_dispatch`).
-- Complete **legal review** (e.g. **TCPA** and state rules for **prerecorded voicemail**, plus direct-mail marketing rules) **before** activating voicemail drops or handwritten mail.
-- **Enrichment-sourced phone numbers are not consent** by themselves; follow counsel-approved **consent / suppression / DNC** handling.
-- On `leads`: store **`voice_consent`** (and optional `consent_source`, `consent_date`) for voicemail where your counsel requires it; **omit `sms_consent`** (no SMS channel).
-- **Do not** activate voicemail or mail channels until the **compliance-review** TODO is resolved.
+- **Calls, voicemail drops, SMS, and WhatsApp are excluded** from this system (do not implement or route them in `channel_dispatch`).
+- Complete **legal review** for **handwritten / direct mail** (suppression, state rules, counsel-approved process) **before** activating `channel_dispatch` or a mail vendor.
+- **Do not** activate handwritten mail until the **compliance-review** TODO is resolved.
 
 ### Ideal Customer Profile (HVAC — launch vertical)
 
@@ -327,7 +319,7 @@ Store disqualification outcome in **`leads.icp_disqualification_reason`** (nulla
 - **Geo fit (0–5):** Match to **configurable** target metros/states JMCG serves (populate `lead.geo` + allowlist).
 - **FSM / ops maturity (0–5):** Known **ServiceTitan / Housecall Pro / FieldEdge** (or strong equivalent signal).
 
-**B. Contact quality (0–25)** — Verified work email (0–10), phone quality for voicemail (0–8), LinkedIn/social (0–4), toxicity / role-based penalty (up to −10, floor 0).
+**B. Contact quality (0–25)** — Verified work email (0–10), supplemental contact signals (0–8), LinkedIn/social (0–4), toxicity / role-based penalty (up to −10, floor 0).
 
 **C. Intent / timing (0–20)** — **Active hiring** signal strength for HVAC roles (0–10), **paid ads** presence / depth Google LSA+PPC + Meta (0–10). *Secondary ICP signals (owner branding, site quality) can bump within this bucket or via a small bonus in A — keep total C ≤20.*
 
@@ -336,8 +328,7 @@ Store disqualification outcome in **`leads.icp_disqualification_reason`** (nulla
 **Trigger mapping (`lead_score` + `channel_flags`)**
 
 - **Email** always (full sequence).
-- **Voicemail drop** only if score ≥ 50 **and** compliance + consent rules satisfied (no SMS/WhatsApp).
-- **Handwritten / direct mail** if score ≥ 75 (vendor integration).
+- **Handwritten / direct mail** if score ≥ 75 (vendor integration; compliance-gated).
 
 ### Leverage Library matching (tag-based — no embeddings at JMCG scale)
 
@@ -353,18 +344,11 @@ At **5–15 case studies**, use **tag-based** matching only (revisit embeddings 
 - Where budget allows, populate **ICP proxy fields** (Section 3): **Google review count**, **hiring** flags, **paid ad** flags, **FSM** hints — these drive the HVAC rubric; prioritize highest-signal providers first within the cap.
 - Config: **`max_enrichment_cost_per_lead`** (e.g. **$0.15**).
 - Track **cumulative** cost per lead in `enrichment_runs` (see **`cumulative_cost`** below).
-- **Halt** waterfall when the cap is reached, even if email/phone is still missing.
-
-### Phone enrichment gating (~5× email cost)
-
-1. Run the **full email waterfall** first.
-2. **Score** all leads on **email-only** data.
-3. Run **phone enrichment only** for leads scoring **≥ 50**.
-4. Log phone enrichment as its own `enrichment_runs` row with `provider_order = 'phone_enrichment'`.
+- **Halt** waterfall when the cap is reached, even if email is still missing.
 
 ### Waterfall enrichment (Supabase pattern)
 
-- `enrichment_runs`: `lead_id`, `provider_order` (e.g. Clay → Lead Magic → Hunter, then optional `phone_enrichment`), `status`, `payload`, `cost`, **`cumulative_cost`**, `timestamp`.
+- `enrichment_runs`: `lead_id`, `provider_order` (e.g. Clay → Lead Magic → Hunter), `status`, `payload`, `cost`, **`cumulative_cost`**, `timestamp`.
 - Advance to the next provider when data is missing or low confidence — **unless** cost cap is hit.
 
 ```mermaid
@@ -380,19 +364,13 @@ flowchart LR
   subgraph score [Score]
     S[0 to 100 rubric]
   end
-  subgraph phone [Phone if ge50]
-    PH[phone_enrichment]
-  end
   subgraph route [Routing]
     E[Email sequence]
-    VM[Voicemail drop]
     DM[Handwritten letter]
   end
   L --> P1 --> P2 --> P3 --> S
-  S -->|ge 50| PH
   S --> E
-  S -->|ge 50 compliant| VM
-  S -->|ge 75| DM
+  S -->|ge 75 compliant| DM
 ```
 
 ### Supabase schema additions (v2 / v2.1)
@@ -401,9 +379,6 @@ flowchart LR
 
 - `cycle_number` (integer, default **1**)
 - `previous_library_entry_ids` (jsonb array)
-- `voice_consent` (boolean, default false) — voicemail drops only (**no SMS**; do not add `sms_consent`)
-- `consent_source` (text, nullable), `consent_date` (timestamptz, nullable)
-- `phone_enriched` (boolean, default false)
 - **`icp_vertical`** (text, default **`hvac`**) — supports future verticals without schema churn
 - **`google_review_count`** (integer, nullable) — for **250–1,500** band scoring; source: Maps / Outscraper / BrightLocal / Clay
 - **`has_active_hvac_hiring`** (boolean, nullable) — Indeed / Zip / LinkedIn job signals
@@ -557,7 +532,7 @@ Log to **`experiments`** and **`qa_results`** (and related metrics):
 
 - Per **variant:** sends, opens, **raw replies**, **positive replies** (per **Section 7** taxonomy), meetings booked, unsubscribes, spam complaints.
 - Per **mailbox:** bounces, spam placement, complaints.
-- Per **channel:** email vs voicemail vs handwritten/direct mail (no SMS/WhatsApp).
+- Per **channel:** email vs handwritten/direct mail (no calls, voicemail, SMS, or WhatsApp).
 - Per **Leverage Library entry:** **positive** reply and booking lift by segment (Section 7).
 
 **Phase 2 — Monthly analysis (automated agent)**
@@ -653,7 +628,7 @@ Classify the **first substantive inbound** (and re-classify if the lead sends a 
 
 **Implementation notes**
 
-- Run classification **on the reply-agent path** (or a dedicated lightweight **Claude** pass) as soon as the inbound text is available; persist to **`replies`** (or linked table): e.g. **`reply_classification`** (enum/text), **`counts_as_positive_reply`** (boolean), optional **`classification_confidence`**. Allow **manual override** in Supabase for edge cases.
+- Run classification **on the reply-agent path** (or a dedicated lightweight **Gemini** pass) as soon as the inbound text is available; persist to **`replies`** (or linked table): e.g. **`reply_classification`** (enum/text), **`counts_as_positive_reply`** (boolean), optional **`classification_confidence`**. Allow **manual override** in Supabase for edge cases.
 - **Monthly optimization (Section 5):** Use **positive reply rate** (and/or **meeting-booked rate**) for **retiring** underperforming copy variants and comparing hooks/CTAs — **not** raw reply totals. Keep **raw reply count** only as a secondary diagnostic.
 - **Sequence touch lift:** Prefer **incremental positive reply rate** per touch (or meetings attributed to that touch if you attribute them); if data is thin early, document that **raw** is fallback with a warning label.
 - **Reporting / Instantly sync:** If the provider only exposes **aggregate replies**, plan a **normalization** step in your warehouse (Supabase) using stored classifications so the **command center** does not mirror misleading provider defaults.
@@ -681,10 +656,10 @@ Outbound generation should aim for **good-faith engagement and meetings**, not m
 - **Supabase:** Source of truth for **all data**. **pg_cron** schedules worker triggers via **HTTP** to Vercel. **Database webhooks** (e.g. on `replies` insert) for real-time routing where useful. **No** heavy AI compute inside Supabase.
 - **Vercel (Pro — serverless functions):** All **AI-heavy** and batch workers: enrichment, scoring, copy + QA, send queue, **reply-agent** webhook (**&lt;2 min** SLA), **monthly-optimize**, **cooldown-reentry**. Authenticate with **shared secrets** (`CRON_SECRET`, `INSTANTLY_WEBHOOK_SECRET`). See **Section 2**.
 - **Instantly:** Sending (API v2), mailbox management, **unlimited warmup** on paid plans, **webhooks** (`reply_received`, `email_sent`, `email_opened`, `email_bounced`, etc.) → Vercel worker endpoints.
-- **Claude API (Anthropic):** Copy generation (AIDA), QA gate, reply-agent classification + objections, monthly optimization analysis.
+- **Gemini API (Google AI Studio):** Copy generation (AIDA), QA gate, reply-agent classification; monthly optimization analysis when wired.
 - **Slack:** Human-queue escalations and monthly optimization summaries.
 - **Enrichment providers:** Invoked from Vercel waterfall workers; configurable chain + **cost cap**.
-- **Voicemail + handwritten/direct mail:** Behind **`channel_dispatch`** (no SMS/WhatsApp); **BLOCKING** on compliance before activation.
+- **Handwritten/direct mail:** Behind **`channel_dispatch`**; **BLOCKING** on compliance before activation.
 - **Cursor + Claude (development):** **Cursor** = IDE; **Claude** = coding agent to build/maintain workers, prompts, and infra-as-code.
 - **Internal command center (dashboard):** **Phase 2** — see **Section 12**. Not a substitute for building the pipeline first.
 
@@ -699,7 +674,7 @@ Outbound generation should aim for **good-faith engagement and meetings**, not m
 | Daily email volume (steady state, infra sizing) | ~222 | **~600** |
 | Mailboxes | 23 | **60 + 6 backup = 66** |
 | Secondary domains | 2 | **5** |
-| Phone enrichment | All leads | **Score ≥ 50 only** |
+| Phone / voicemail | Prior plan | **Removed** — email + handwritten mail only |
 | Enrichment cost | No cap | **Per-lead budget cap** |
 | QA | approved / revise / block | **pass / regenerate / failed_qa** |
 | Optimization | Biweekly | **Monthly self-healing** |
@@ -709,7 +684,7 @@ Outbound generation should aim for **good-faith engagement and meetings**, not m
 | Human escalation | — | **Triggers + Slack** |
 | Response SLA | “Immediate” | **&lt; 2 minutes** |
 | Cooldown re-entry | New angle | **Re-enrich, re-score, cycle_number, no repeat library IDs** |
-| Compliance | TODO | **BLOCKING for voicemail + mail; SMS/WA excluded (US)** |
+| Compliance | TODO | **BLOCKING for handwritten mail; SMS/WA/voicemail excluded (US)** |
 
 ### v2.1 — Runtime split (addendum)
 
@@ -824,4 +799,4 @@ Avoid custom charting extravagance until **definitions are trusted** (single sou
 
 ## What you should customize next
 
-Lock **HVAC** case studies into the Leverage Library, tune **Section 3** scoring weights against live data, define **geo allowlists** for JMCG’s service markets, complete **legal/compliance** (voicemail + mail), wire **Slack** + override workflow for monthly optimization, and treat the **command center** as **Phase 2** after the pipeline is proven. Add **future verticals** by duplicating the ICP pattern (new `icp_vertical` + rubric slice), not by overloading HVAC rules.
+Lock **HVAC** case studies into the Leverage Library, tune **Section 3** scoring weights against live data, define **geo allowlists** for JMCG’s service markets, complete **legal/compliance** for handwritten mail, wire **Slack** + override workflow for monthly optimization, and treat the **command center** as **Phase 2** after the pipeline is proven. Add **future verticals** by duplicating the ICP pattern (new `icp_vertical` + rubric slice), not by overloading HVAC rules.

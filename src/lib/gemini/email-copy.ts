@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateGeminiText } from "@/lib/gemini/generate";
 
 export type CopyRequest = {
   leadJson: Record<string, unknown>;
@@ -23,9 +23,9 @@ Body length 75-120 words. At most one question in the body. No fabricated metric
 
 export async function generateEmailCopy(
   apiKey: string,
+  model: string,
   req: CopyRequest,
 ): Promise<CopyOutput> {
-  const client = new Anthropic({ apiKey });
   const user = JSON.stringify({
     LEAD: req.leadJson,
     LEVERAGE_LIBRARY_ENTRY: req.libraryEntryJson,
@@ -38,18 +38,13 @@ export async function generateEmailCopy(
     },
   });
 
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1200,
-    system: SYSTEM,
-    messages: [{ role: "user", content: user }],
+  const text = await generateGeminiText({
+    apiKey,
+    model,
+    systemInstruction: SYSTEM,
+    userMessage: user,
+    maxOutputTokens: 1200,
   });
-
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
 
   const parsed = parseJsonLoose(text);
   return {
@@ -66,12 +61,12 @@ export async function generateEmailCopy(
 
 export async function runQaGate(
   apiKey: string,
+  model: string,
   subject: string,
   body: string,
   verifiedFacts: Record<string, unknown>,
   libraryMetrics: string,
 ): Promise<"pass" | "regenerate" | "failed_qa"> {
-  const client = new Anthropic({ apiKey });
   const prompt = `You are a strict email QA gate. Return JSON only: {"verdict":"pass"|"regenerate"|"failed_qa","reasons":[]}
 Rules:
 - Body must be 75-120 words (approximate; pass if close).
@@ -84,17 +79,15 @@ BODY: ${body}
 VERIFIED_FACTS: ${JSON.stringify(verifiedFacts)}
 LIBRARY_METRICS: ${libraryMetrics}`;
 
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 400,
-    messages: [{ role: "user", content: prompt }],
+  const text = await generateGeminiText({
+    apiKey,
+    model,
+    systemInstruction:
+      "You output only valid JSON for email QA. No markdown fences.",
+    userMessage: prompt,
+    maxOutputTokens: 400,
   });
 
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
   const parsed = parseJsonLoose(text);
   const v = String(parsed.verdict ?? "regenerate").toLowerCase();
   if (v === "pass" || v === "failed_qa") return v;

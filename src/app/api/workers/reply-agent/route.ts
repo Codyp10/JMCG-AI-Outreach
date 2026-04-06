@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { generateGeminiText } from "@/lib/gemini/generate";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { postSlackMessage } from "@/lib/integrations/slack";
 import { verifyInstantlyWebhook } from "@/lib/workers/cron-auth";
@@ -25,31 +25,25 @@ function unwrapWebhookPayload(raw: unknown): Record<string, unknown> {
 
 async function classifyReply(
   apiKey: string,
+  model: string,
   text: string,
 ): Promise<{
   reply_classification: string;
   counts_as_positive_reply: boolean;
   confidence: number;
 }> {
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 300,
-    messages: [
-      {
-        role: "user",
-        content: `Classify this inbound sales reply. Return JSON only:
+  const raw = await generateGeminiText({
+    apiKey,
+    model,
+    systemInstruction:
+      "You classify inbound sales emails. Reply with JSON only, no markdown.",
+    userMessage: `Classify this inbound sales reply. Return JSON only:
 {"reply_classification":"out_of_office"|"automated"|"negative"|"neutral"|"positive"|"meeting_booked","counts_as_positive_reply":boolean,"confidence":0-1}
 
 Message:
 ${text}`,
-      },
-    ],
+    maxOutputTokens: 300,
   });
-  const raw = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   let parsed: Record<string, unknown> = {};
@@ -140,9 +134,11 @@ export async function POST(request: Request) {
     let confidence = 0.5;
 
     try {
-      const claudeKey = process.env.CLAUDE_API_KEY;
-      if (claudeKey && text) {
-        const c = await classifyReply(claudeKey, text);
+      const geminiKey = process.env.GEMINI_API_KEY;
+      const geminiModel =
+        process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+      if (geminiKey && text) {
+        const c = await classifyReply(geminiKey, geminiModel, text);
         reply_classification = c.reply_classification;
         counts_as_positive_reply = c.counts_as_positive_reply;
         confidence = c.confidence;

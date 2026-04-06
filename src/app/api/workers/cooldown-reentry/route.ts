@@ -40,6 +40,12 @@ export async function POST(request: Request) {
 
         const nextCycle = Number(lead?.cycle_number ?? 1) + 1;
 
+        const { error: delDispErr } = await supabase
+          .from("channel_dispatch")
+          .delete()
+          .eq("lead_id", row.lead_id);
+        if (delDispErr) throw new Error(delDispErr.message);
+
         const { error: upErr } = await supabase
           .from("leads")
           .update({
