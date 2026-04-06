@@ -1,18 +1,18 @@
 ---
 name: JMCG AI Outreach
-overview: "JMCG AI Outreach implementation blueprint (v2.1): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Smartlead + Claude API. Positive-reply metrics; US channels: email, voicemail, handwritten mail only. Cursor + Claude. Phase 2: command-center dashboard."
+overview: "JMCG AI Outreach implementation blueprint (v2.2): SAM=16,000 / 90 days; launch ICP = US residential HVAC $3M–$7M (proxy-based qualification: name keywords, Google reviews 250–1,500, hiring, paid ads, FSM stack). Runtime: Supabase + Vercel Pro workers + Instantly + Claude API. Positive-reply metrics; US channels: email, voicemail, handwritten mail only. Cursor + Claude. Phase 2: command-center dashboard."
 todos:
   - id: supabase-schema
     content: "DONE in repo: migrations under supabase/migrations/ (leads v2.1 fields, enrichment_runs.cumulative_cost, scores, sequences, messages, qa_results, experiments, replies + Section 7 fields, cooldown_queue, channel_dispatch, optimization_log, mailbox_health, worker_runs, atomic claim RPCs, RLS). OPS: apply migrations to your Supabase project (CLI or SQL editor); then wire pg_cron HTTP jobs per docs/pg-cron-vercel.md."
     status: completed
-  - id: smartlead-mapping
-    content: "DONE in repo: docs/smartlead-mailbox-mapping.md + seed rows mb_1–mb_20 in mailbox_health (placeholder domains/emails). REMAINING (Smartlead product): create/warm 20 mailboxes on 2 domains, daily cap ~9 per primary, stagger warmup 2–4 weeks; replace placeholder mailbox_id/emails in DB with live Smartlead IDs."
-    status: in_progress
+  - id: instantly-setup
+    content: "Set up Instantly Hypergrowth account. Purchase 66 pre-warmed email accounts (~$7/mo each) across 5 secondary domains. Configure daily caps at 10 sends per mailbox. Register reply_received and email_bounced webhooks pointing to Vercel /api/workers/reply-agent and /api/workers/mailbox-health endpoints with auth headers."
+    status: pending
   - id: orchestration-workers
-    content: "DONE in repo: Next.js /api/workers/* (waterfall-enrich stub, score, phone-enrich, copy-generate+QA, send-queue, reply-agent webhook, monthly-optimize snapshot, cooldown-reentry, mailbox-health-check), shared-secret cron auth, worker_runs logging, idempotent SQL claims. REMAINING: real Clay/Lead Magic/Hunter + phone vendors; confirm Smartlead API payloads; optional DB webhook on replies."
+    content: "DONE in repo: Next.js /api/workers/* (waterfall-enrich stub, score, phone-enrich, copy-generate+QA, send-queue, reply-agent webhook, monthly-optimize snapshot, cooldown-reentry, mailbox-health-check), shared-secret cron auth, worker_runs logging, idempotent SQL claims. REMAINING: real Clay/Lead Magic/Hunter + phone vendors; confirm Instantly API v2 payloads (send-queue + reply endpoint); optional DB webhook on replies."
     status: completed
   - id: vercel-project-setup
-    content: "DONE in repo: vercel.json (300s workers), .env.example, route structure. REMAINING (ops): create Vercel Pro project, connect repo, set env vars (SUPABASE_*, CRON_SECRET, SMARTLEAD_*, CLAUDE_API_KEY, Slack, enrichment keys); deploy; point Supabase pg_cron at deployment URLs."
+    content: "DONE in repo: vercel.json (300s workers), .env.example, route structure. REMAINING (ops): create Vercel Pro project, connect repo, set env vars (SUPABASE_*, CRON_SECRET, INSTANTLY_API_KEY, INSTANTLY_WEBHOOK_SECRET, CLAUDE_API_KEY, Slack, enrichment keys); deploy; point Supabase pg_cron at deployment URLs."
     status: in_progress
   - id: leverage-library
     content: "DONE in repo: table + tag-based pick in copy-generate; seed has 2 HVAC-style case studies (industry_tags hvac, personas owner/gm/marketing, independent_owner_operator). REMAINING: replace seeds with real JMCG proofs/metrics; tune tie-break on strongest metric when library grows."
@@ -25,20 +25,20 @@ todos:
     content: "PARTIAL in repo: monthly-optimize worker writes optimization_log snapshot, aggregates sent/positive reply counts, optional Slack. REMAINING: variant comparison on positive reply + meetings (min 150 sends), promote/retire losers, spawn test variants, channel ROI, auto-apply Phase 3 rules per Section 5."
     status: in_progress
   - id: reply-agent-v2
-    content: "PARTIAL in repo: reply-agent webhook persists replies with reply_classification + counts_as_positive_reply (Claude classify when key set); basic escalation keyword → Slack stub. REMAINING: full thread context from Supabase/Smartlead, multi-turn with 5-exchange cap, objection playbooks, complete escalation rules (Section 6), <2 min SLA hardening."
+    content: "PARTIAL in repo: reply-agent webhook persists replies with reply_classification + counts_as_positive_reply (Claude classify when key set); basic escalation keyword → Slack stub. REMAINING: full thread context from Supabase/Instantly, multi-turn with 5-exchange cap, objection playbooks, complete escalation rules (Section 6), <2 min SLA hardening; send replies via Instantly email reply API using email_id from webhook as reply_to_uuid."
     status: in_progress
   - id: backup-mailbox-monitoring
-    content: "DONE in repo: mailbox_health table + seed; runMailboxHealthSweep + POST /api/workers/mailbox-health-check (pause on bounce >5% or complaint >0.1%, promote backup, log to optimization_log). OPS: schedule cron; feed real bounce/complaint rates from Smartlead or ESP into mailbox_health."
+    content: "DONE in repo: mailbox_health table + seed; runMailboxHealthSweep + POST /api/workers/mailbox-health-check (pause on bounce >5% or complaint >0.1%, promote backup, log to optimization_log). OPS: schedule cron; feed real bounce/complaint rates from Instantly (e.g. email_bounced webhook / API) or ESP into mailbox_health."
     status: completed
   - id: command-center-dashboard
-    content: "PHASE 2 — not started: Internal command-center UI (pipeline counts, worker_runs, QA/enrichment alerts), then Smartlead metrics sync, then bookings. Auth + RLS; no service role in browser. De-prioritize polish until data is correct."
+    content: "PHASE 2 — not started: Internal command-center UI (pipeline counts, worker_runs, QA/enrichment alerts), then Instantly metrics sync, then bookings. Auth + RLS; no service role in browser. De-prioritize polish until data is correct."
     status: pending
 isProject: false
 ---
 
-# JMCG AI Outreach — Implementation Blueprint (v2.1)
+# JMCG AI Outreach — Implementation Blueprint (v2.2)
 
-**Assumptions (v2.1):** Enriched **SAM = 16,000** verified contacts. **Offer:** **Johnson Marketing & Consulting (JMCG)** marketing services. **Launch ICP:** **US residential HVAC** companies in the **$3M–$7M revenue** band (see **Section 3 — Ideal Customer Profile**); qualification uses **proxy signals** (not raw revenue from vendors — often unreliable for private local shops). Architecture aligned with **Jordan Platten / Affluent.co**–style automation. **Runtime:** **Supabase** + **pg_cron** + DB webhooks; **Vercel Pro** workers; **Smartlead**; **Claude API**. **Cursor** = IDE; **Claude** = coding agent. **US outbound channels:** **email**, **voicemail drop** (score ≥ 50), **handwritten letter** (score ≥ 75). **SMS and WhatsApp are not used.**
+**Assumptions (v2.2):** Enriched **SAM = 16,000** verified contacts. **Offer:** **Johnson Marketing & Consulting (JMCG)** marketing services. **Launch ICP:** **US residential HVAC** companies in the **$3M–$7M revenue** band (see **Section 3 — Ideal Customer Profile**); qualification uses **proxy signals** (not raw revenue from vendors — often unreliable for private local shops). Architecture aligned with **Jordan Platten / Affluent.co**–style automation. **Runtime:** **Supabase** + **pg_cron** + DB webhooks; **Vercel Pro** workers; **Instantly**; **Claude API**. **Cursor** = IDE; **Claude** = coding agent. **US outbound channels:** **email**, **voicemail drop** (score ≥ 50), **handwritten letter** (score ≥ 75). **SMS and WhatsApp are not used.**
 
 ---
 
@@ -46,56 +46,74 @@ isProject: false
 
 ### Core formulas (keep in a config table or env)
 
-| Metric | Formula | JMCG value (SAM = 16,000) |
-|--------|---------|---------------------------|
-| **Daily send rate** | `SAM / 90` | **178 sends/day** |
-| **Email accounts required** | `ceil(daily_sends / 10)` | **18 accounts** |
-| **Backup accounts (10% reserve)** | `ceil(accounts * 0.10)` | **2 accounts** |
-| **Total accounts to warm** | primary + backups | **20 accounts** |
-| **Secondary domains required** | `ceil(total_accounts / 15)` | **2 domains** (**15** on domain A, **5** on domain B) |
-| **Warmup window** | 2–4 weeks staggered | Same |
+**Important:** `SAM / 90 = 178` is **new leads entering the system per day**, not total emails sent. At steady state, each lead receives multiple touches (default **4**, configurable up to **5**) spread over **14–18 days**; once the pipeline is full, sends go to leads at every stage simultaneously. **Size infrastructure for total daily email volume (~600/day), not 178.**
+
+| Metric | Formula / basis | JMCG value (SAM = 16,000) |
+|--------|-----------------|---------------------------|
+| **New leads/day (ingest)** | `SAM / 90` | **178** |
+| **Avg touches per lead (steady state)** | ~3.5 (some reply/unsub before breakup) | **~3.5** |
+| **Total daily email volume (steady state)** | Pipeline full, multi-touch overlap | **~600 emails/day** |
+| **Monthly email volume** | | **~18,000 emails/month** |
+| **Email accounts required (sizing)** | `ceil(600 / 10)` | **60 accounts** |
+| **Backup accounts (10% reserve)** | `ceil(accounts * 0.10)` | **6 accounts** |
+| **Total accounts to warm** | primary + backups | **66 accounts** |
+| **Secondary domains required** | `ceil(66 / 15)` | **5 domains** |
+| **Warmup window** | 2–4 weeks staggered (or use Instantly pre-warmed) | Same |
 
 **Key metrics summary**
 
-- **Daily sends (planned):** **178**
-- **Primary sending mailboxes:** **18**; **backup (warmed):** **2**; **total to warm:** **20**
-- **Secondary domains:** **2** (plus primary brand domain for site, redirects, compliance as needed)
+- **New leads/day (ingest):** **178**
+- **Total daily email volume (steady state, infra sizing):** **~600**
+- **Primary sending mailboxes:** **60**; **backup (warmed):** **6**; **total to warm:** **66**
+- **Secondary domains:** **5** (plus primary brand domain for site, redirects, compliance as needed)
+- **Daily cap per primary mailbox:** **10** (`floor(600 / 60)` at full primary count; rebalance when backups rotate in)
+
+### Monthly cost estimate (sending infrastructure)
+
+| Line item | Monthly cost |
+|-----------|----------------|
+| Instantly Hypergrowth | $97 |
+| 66 pre-warmed accounts × $7 | $462 |
+| 5 secondary domains (~$12/yr each) | ~$5 |
+| **Total sending infrastructure** | **~$564/mo** |
 
 ### Operational checklist (infrastructure)
 
 - **Backup pool:** Maintain **10% warmed backup accounts** at all times; **swap in** when a primary mailbox hits spam or complaint thresholds.
-- **Capacity pacing:** Store `daily_quota_per_mailbox = floor(daily_sends / active_warmed_accounts)` and **rebalance dynamically** as accounts rotate in/out (including backup activation).
-- **Smartlead:** Campaign or partition per mailbox/domain group; align **sending windows** and **daily limits** with provider and Smartlead caps. **Daily caps:** `floor(178 / 18) = 9` sends per primary mailbox (rebalance when backups replace primaries).
+- **Capacity pacing:** Store `daily_quota_per_mailbox = floor(600 / active_warmed_accounts)` and **rebalance dynamically** as accounts rotate in/out (including backup activation).
+- **Instantly:** Campaign or partition per mailbox/domain group; align **sending windows** and **daily limits** with Instantly caps. **Daily caps:** **10** sends per primary mailbox at nominal staffing (`floor(600 / 60)`; rebalance when backups replace primaries). **Warmup:** Instantly includes **unlimited warmup** on paid plans; pre-warmed mailboxes (~$7/mo each via Instantly managed accounts) reduce ramp time.
 - **Supabase:** See **Section 3** (schema) and **Section 9** (tech stack) for tables and integrations.
 
 ### Projected conversion metrics (conservative)
 
+*Book-rate assumptions below use **0.5–1%** on **new leads/day (178)**, not on total emails. Most bookings come from the full sequence, not a single touch. The **~600/day** email volume sustains that **178** new-lead throughput at steady state.*
+
 | Metric | Conservative (0.5% book rate) | Optimistic (1% book rate) |
 |--------|-------------------------------|---------------------------|
-| Meetings/day | ~0.9 | ~1.8 |
-| Meetings/month | ~27 | ~53 |
-| Show rate (60%) | ~16 | ~32 |
-| New clients/month (20% close) | ~3 | ~6 |
+| Meetings/day | ~1 | ~2 |
+| Meetings/month | ~30 | ~60 |
+| Show rate (60%) | ~18 | ~36 |
+| New clients/month (20% close) | ~3–4 | ~7 |
 
 ### DNS / deliverability checklist (per secondary domain)
 
 Apply to **each** secondary domain used for outbound:
 
-- **SPF:** Single SPF authorizing Smartlead (and overlapping ESP if any); avoid >10 DNS lookups; no conflicting SPFs.
-- **DKIM:** Enable in Smartlead; publish **CNAME/TXT**; verify pass in tests.
+- **SPF:** Single SPF authorizing **Instantly** / your ESP as required; avoid >10 DNS lookups; no conflicting SPFs.
+- **DKIM:** Enable per **Instantly** (or ESP) instructions; publish **CNAME/TXT**; verify pass in tests.
 - **DMARC:** Start `p=none` (or `quarantine` if mature), `rua` to monitoring inbox; tighten after stable alignment.
 - **MX:** Correct MX for the domain.
 - **BIMI (optional):** After DMARC maturity.
 - **PTR / rDNS:** If dedicated IPs, align forward/reverse DNS.
 - **From-name / From-domain:** Align with DKIM signing domain.
 - **Unsubscribe / physical address:** CAN-SPAM/GDPR-aligned footer and list-unsubscribe where applicable.
-- **Warmup:** 2–4 weeks progressive volume; stagger the **20** mailboxes; monitor bounce/complaint per mailbox.
+- **Warmup:** If not using pre-warmed mailboxes, use progressive volume over 2–4 weeks; stagger the **66** mailboxes; monitor bounce/complaint per mailbox. **Instantly** provides unlimited warmup on paid plans.
 
 ---
 
 ## 2. Runtime Architecture — Supabase + Vercel
 
-**Principle:** **Supabase** owns **data** and **scheduling**. **Vercel** owns **compute**. **Smartlead** owns **sending**. **Claude API** owns **intelligence**.
+**Principle:** **Supabase** owns **data** and **scheduling**. **Vercel** owns **compute**. **Instantly** owns **sending**. **Claude API** owns **intelligence**.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -153,16 +171,17 @@ Apply to **each** secondary domain used for outbound:
 │                                                         │
 │  /api/workers/send-queue                                │
 │    Pull approved messages from Supabase                 │
-│    Push to Smartlead API                                │
+│    Push to Instantly API v2 (campaign / send endpoints)   │
 │    Update message status                                │
 │                                                         │
 │  /api/workers/reply-agent                               │
-│    Triggered by Smartlead reply webhook                 │
+│    Triggered by Instantly reply_received webhook        │
 │    Load full thread context from Supabase               │
 │    Classify intent via Claude API                       │
 │    Check escalation triggers → Slack if hit             │
 │    Otherwise run objection playbook (multi-turn)        │
-│    Write reply via Smartlead API                        │
+│    Send reply via Instantly email reply API             │
+│      (use email_id from webhook as reply_to_uuid)       │
 │    Update replies table                                 │
 │                                                         │
 │  /api/workers/monthly-optimize                          │
@@ -186,11 +205,11 @@ Apply to **each** secondary domain used for outbound:
 └──────────────────────┬──────────────────────────────────┘
                        │ API calls
 ┌──────────────────────▼──────────────────────────────────┐
-│                   SMARTLEAD                             │
+│                   INSTANTLY                             │
 │                                                         │
-│  Receives send requests via API                         │
-│  Fires reply/open webhooks → Vercel /api/workers/       │
-│  Manages mailbox rotation, warmup, daily caps           │
+│  Receives send requests via API v2                      │
+│  Webhooks (reply_received, opens, bounces, …) → Vercel │
+│  Mailbox management, unlimited warmup (paid plans)     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -198,7 +217,7 @@ Apply to **each** secondary domain used for outbound:
 
 - **Batch size:** Each invocation processes a configurable batch (e.g. **10–25** leads). Stays under Vercel’s **300s** limit with multiple Claude round-trips. If the queue exceeds one batch, process a batch and return; **pg_cron** fires again on the next interval for the remainder.
 - **Idempotency:** Workers must be **idempotent**. On timeout/failure mid-batch, the next run continues safely. Use row **status** fields (e.g. `enrichment_status = 'pending' | 'in_progress' | 'complete' | 'failed'`) and **atomic** `UPDATE … RETURNING` to claim work and avoid duplicate processing.
-- **Auth:** All Vercel endpoints require a **shared secret** (env on Supabase + Vercel). **pg_cron** HTTP calls and **Smartlead** webhooks send the secret in a header; **middleware** rejects unauthorized requests.
+- **Auth:** All Vercel endpoints require a **shared secret** (env on Supabase + Vercel). **pg_cron** HTTP calls and **Instantly** webhooks send the secret in a header (register webhooks with e.g. `{"Authorization": "Bearer <INSTANTLY_WEBHOOK_SECRET>"}`); **middleware** rejects unauthorized requests.
 - **Error handling:** On transient failure (Claude timeout, provider **500**), retry the **individual lead** up to **2×** in the same invocation. On persistent failure, mark **`failed`** with an error message and continue — do not block the batch.
 - **Logging:** Log each invocation to **`worker_runs`** in Supabase: `worker_name`, `started_at`, `completed_at`, `batch_size`, `success_count`, `error_count`, `error_details` (jsonb).
 
@@ -210,8 +229,8 @@ Apply to **each** secondary domain used for outbound:
 | Scoring batch | Every **10** min | `/api/workers/score` | e.g. **50** leads per batch |
 | Phone enrichment | Every **15** min | `/api/workers/phone-enrich` | score ≥ 50, `phone_enriched=false` |
 | Copy generation | Every **15** min | `/api/workers/copy-generate` | e.g. **10** leads per batch (heaviest) |
-| Send queue flush | Every **2** min | `/api/workers/send-queue` | approved → Smartlead |
-| Reply agent | **Webhook** (real-time) | `/api/workers/reply-agent` | Smartlead → Vercel |
+| Send queue flush | Every **2** min | `/api/workers/send-queue` | approved → Instantly API v2 |
+| Reply agent | **Webhook** (real-time) | `/api/workers/reply-agent` | Instantly `reply_received` → Vercel |
 | Cooldown re-entry | **Daily 6am ET** | `/api/workers/cooldown-reentry` | `cooldown_until <= now` |
 | Monthly optimization | **1st of month 8am ET** | `/api/workers/monthly-optimize` | analysis + auto-apply |
 
@@ -222,14 +241,18 @@ Apply to **each** secondary domain used for outbound:
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side access (not anon key) |
 | `CLAUDE_API_KEY` | Anthropic — copy, QA, reply agent, optimization |
-| `SMARTLEAD_API_KEY` | Send + campaign APIs |
+| `INSTANTLY_API_KEY` | Instantly API v2 — send + campaigns (Bearer token, not query param) |
 | `CRON_SECRET` | Shared secret for pg_cron → Vercel |
-| `SMARTLEAD_WEBHOOK_SECRET` | Validate Smartlead webhooks |
+| `INSTANTLY_WEBHOOK_SECRET` | Validate Instantly webhooks (custom header on webhook registration) |
 | `SLACK_WEBHOOK_URL` | Escalations + monthly reports |
 | `ENRICHMENT_CLAY_API_KEY` | Clay (or primary provider) |
 | `ENRICHMENT_LEADMAGIC_API_KEY` | Lead Magic |
 | `ENRICHMENT_HUNTER_API_KEY` | Hunter |
 | `MAX_ENRICHMENT_COST_PER_LEAD` | Default: **0.15** |
+
+**Note:** Instantly API v2 uses **Bearer token** auth: `Authorization: Bearer <INSTANTLY_API_KEY>` — not query-parameter auth.
+
+**Instantly (Hypergrowth — reference):** **$97/mo**; **25,000** contacts, **100,000** emails/month, unlimited email accounts, **unlimited warmup**, API included. **API base:** `https://api.instantly.ai/api/v2/`. **Rate limits:** **100** requests/second, **6,000** requests/minute per workspace (shared across keys/endpoints). **Webhooks include:** `reply_received`, `email_sent`, `email_opened`, `email_bounced`, `lead_unsubscribed`, `lead_interested`, `lead_not_interested`, `lead_meeting_booked`, `lead_out_of_office`, `lead_wrong_person`, `campaign_completed`, `account_error`, plus custom label events. **`reply_received` payload (key fields):** `reply_text`, `reply_html`, `reply_subject`, **`email_id`** (use as **`reply_to_uuid`** to send replies via API), `lead_email`, `campaign_id`, `email_account`, `unibox_url`.
 
 ### Vercel Pro requirement
 
@@ -563,7 +586,7 @@ Log to **`experiments`** and **`qa_results`** (and related metrics):
 
 ### Core behaviors
 
-- **SLA:** **&lt; 2 minutes** from Smartlead reply **webhook** to **sent** reply.
+- **SLA:** **&lt; 2 minutes** from Instantly **`reply_received`** **webhook** to **sent** reply (via Instantly email reply API).
 - **Context:** Full thread — all prior outbound and inbound messages for the lead.
 - **Multi-turn:** Not single-shot; maintain state across exchanges.
 - **Objection persistence:** Up to **5** back-and-forth exchanges on an objection; if no booking, mark **`objection_exhausted`** and enter **cooldown** (Section 8).
@@ -633,7 +656,7 @@ Classify the **first substantive inbound** (and re-classify if the lead sends a 
 - Run classification **on the reply-agent path** (or a dedicated lightweight **Claude** pass) as soon as the inbound text is available; persist to **`replies`** (or linked table): e.g. **`reply_classification`** (enum/text), **`counts_as_positive_reply`** (boolean), optional **`classification_confidence`**. Allow **manual override** in Supabase for edge cases.
 - **Monthly optimization (Section 5):** Use **positive reply rate** (and/or **meeting-booked rate**) for **retiring** underperforming copy variants and comparing hooks/CTAs — **not** raw reply totals. Keep **raw reply count** only as a secondary diagnostic.
 - **Sequence touch lift:** Prefer **incremental positive reply rate** per touch (or meetings attributed to that touch if you attribute them); if data is thin early, document that **raw** is fallback with a warning label.
-- **Reporting / Smartlead sync:** If the provider only exposes **aggregate replies**, plan a **normalization** step in your warehouse (Supabase) using stored classifications so the **command center** does not mirror misleading provider defaults.
+- **Reporting / Instantly sync:** If the provider only exposes **aggregate replies**, plan a **normalization** step in your warehouse (Supabase) using stored classifications so the **command center** does not mirror misleading provider defaults.
 
 ### Copy goal alignment (Section 4)
 
@@ -656,8 +679,8 @@ Outbound generation should aim for **good-faith engagement and meetings**, not m
 ## 9. Tech Stack Wiring
 
 - **Supabase:** Source of truth for **all data**. **pg_cron** schedules worker triggers via **HTTP** to Vercel. **Database webhooks** (e.g. on `replies` insert) for real-time routing where useful. **No** heavy AI compute inside Supabase.
-- **Vercel (Pro — serverless functions):** All **AI-heavy** and batch workers: enrichment, scoring, copy + QA, send queue, **reply-agent** webhook (**&lt;2 min** SLA), **monthly-optimize**, **cooldown-reentry**. Authenticate with **shared secrets** (`CRON_SECRET`, `SMARTLEAD_WEBHOOK_SECRET`). See **Section 2**.
-- **Smartlead:** Sending, mailbox management, warmup, **reply/open webhooks** → Vercel worker endpoints.
+- **Vercel (Pro — serverless functions):** All **AI-heavy** and batch workers: enrichment, scoring, copy + QA, send queue, **reply-agent** webhook (**&lt;2 min** SLA), **monthly-optimize**, **cooldown-reentry**. Authenticate with **shared secrets** (`CRON_SECRET`, `INSTANTLY_WEBHOOK_SECRET`). See **Section 2**.
+- **Instantly:** Sending (API v2), mailbox management, **unlimited warmup** on paid plans, **webhooks** (`reply_received`, `email_sent`, `email_opened`, `email_bounced`, etc.) → Vercel worker endpoints.
 - **Claude API (Anthropic):** Copy generation (AIDA), QA gate, reply-agent classification + objections, monthly optimization analysis.
 - **Slack:** Human-queue escalations and monthly optimization summaries.
 - **Enrichment providers:** Invoked from Vercel waterfall workers; configurable chain + **cost cap**.
@@ -669,12 +692,13 @@ Outbound generation should aim for **good-faith engagement and meetings**, not m
 
 ## 10. v1 → v2 Summary
 
-| Area | v1 | v2 |
+| Area | v1 | v2 / v2.2 |
 |------|----|----|
 | SAM | 20,000 | **16,000** |
-| Daily sends | ~222 | **178** |
-| Mailboxes | 23 | **18 + 2 backup = 20** |
-| Domains | 2 | **2** (15 + 5) |
+| New leads/day (ingest) | — | **178** (`SAM / 90`) |
+| Daily email volume (steady state, infra sizing) | ~222 | **~600** |
+| Mailboxes | 23 | **60 + 6 backup = 66** |
+| Secondary domains | 2 | **5** |
 | Phone enrichment | All leads | **Score ≥ 50 only** |
 | Enrichment cost | No cap | **Per-lead budget cap** |
 | QA | approved / revise / block | **pass / regenerate / failed_qa** |
@@ -695,7 +719,18 @@ Outbound generation should aim for **good-faith engagement and meetings**, not m
 | Scheduling | Unclear | **Supabase pg_cron** → HTTP to Vercel |
 | Supabase role | Database | Database + **scheduling triggers** + **`worker_runs` logs** |
 | Auth for jobs | — | **Shared secrets** on cron + webhooks |
-| Reply path | Smartlead webhook → worker | Explicit **Vercel** `/api/workers/reply-agent` |
+| Reply path | Instantly `reply_received` webhook → worker | Explicit **Vercel** `/api/workers/reply-agent` |
+
+### v2.2 — Lead ingest vs email volume; Instantly
+
+| Area | v2.1 (prior) | v2.2 |
+|------|--------------|------|
+| New leads/day (SAM/90) | 178 | **178** (unchanged) |
+| Infra sizing: daily **email** volume | Conflated with ingest | **~600** steady state |
+| Mailboxes | 18 + 2 = 20 | **60 + 6 = 66** |
+| Secondary domains | 2 | **5** |
+| Daily cap per primary mailbox | 9 | **10** |
+| Sending platform | Smartlead | **Instantly** Hypergrowth; **API v2** (`https://api.instantly.ai/api/v2/`) |
 
 ---
 
@@ -736,7 +771,7 @@ If a **pull** produces a **merge conflict**, **stop** and surface it to the deve
 
 ## 12. Internal Command Center (Dashboard) — Phase 2
 
-**Role:** A **logged-in internal hub** that ties the stack together — enrichment → scoring → send → reply → booking — without replacing provider-native UIs (e.g. Smartlead’s own reports stay the deep-dive; this is the **operator’s command center**).
+**Role:** A **logged-in internal hub** that ties the stack together — enrichment → scoring → send → reply → booking — without replacing provider-native UIs (e.g. **Instantly’s** own reports stay the deep-dive; this is the **operator’s command center**).
 
 ### Sequencing (critical)
 
@@ -744,7 +779,7 @@ If a **pull** produces a **merge conflict**, **stop** and surface it to the deve
 
 1. **Supabase schema** + **Vercel workers** (enrich, score, copy+QA, send-queue, reply-agent) running reliably.
 2. **Idempotent batches**, **`worker_runs`** logging, and **truthful** row states in Postgres (pipeline stages, message status).
-3. **Smartlead** send + webhook path proven end-to-end.
+3. **Instantly** send + webhook path proven end-to-end.
 
 Only then start the dashboard — first as **functional** pages (correct numbers, fast loads), then refine layout/visuals.
 
@@ -759,7 +794,7 @@ Only then start the dashboard — first as **functional** pages (correct numbers
 - **Mailbox strip:** link **`mailbox_health`** (active / paused / backup) to “why sends dropped.”
 
 **Next (dashboard v1 — add provider + outcomes)**  
-- **Email performance:** sends and, where available, **open rate**, **reply rate** (raw), and **positive reply rate** (from **Section 7** classifications in Supabase — do not treat provider “reply” alone as ground truth) by **day / week / month** — via sync/API into Supabase (e.g. `provider_metrics_daily` + joined classifications); **never** call Smartlead from the browser with secrets.  
+- **Email performance:** sends and, where available, **open rate**, **reply rate** (raw), and **positive reply rate** (from **Section 7** classifications in Supabase — do not treat provider “reply” alone as ground truth) by **day / week / month** — via sync/API into Supabase (e.g. `provider_metrics_daily` + joined classifications); **never** call **Instantly** from the browser with secrets.  
 - **Bookings:** webhook from scheduling tool (Cal.com, Calendly, CRM) into **`appointments`** (or equivalent), joined to **lead_id**.
 
 **Later (dashboard v2)**  
