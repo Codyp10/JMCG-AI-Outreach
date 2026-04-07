@@ -75,14 +75,27 @@ You can leave **`INSTANTLY_DEFAULT_CAMPAIGN_ID`** unset in Vercel if this column
 | `INSTANTLY_WEBHOOK_SECRET` | Shared secret Instantly sends (e.g. `Authorization: Bearer …`) so **`/api/workers/reply-agent`** accepts webhooks. **Not** the same string as `INSTANTLY_API_KEY`. |
 | `SLACK_WEBHOOK_URL` | Optional — escalations / monthly summary where implemented. |
 
-### Phase D — enrichment (optional until vendors are wired)
+### Phase D — Apollo lead pull + waterfall
 
 | Name | Purpose |
 |------|---------|
-| `ENRICHMENT_CLAY_API_KEY` | Waterfall / enrichment (when implemented). |
-| `ENRICHMENT_LEADMAGIC_API_KEY` | Same. |
-| `ENRICHMENT_HUNTER_API_KEY` | Same. |
+| `APOLLO_API_KEY` | **Apollo.io master API key** (Settings → API). Used by **`POST /api/workers/apollo-ingest`** to call People Search and optionally **people/match**. |
+| `APOLLO_SEARCH_JSON` | Optional. JSON object **merged** over the default HVAC/US search in **`src/lib/integrations/apollo.ts`** (`DEFAULT_APOLLO_PEOPLE_SEARCH`). Use to tune titles, keywords, employee ranges, locations, `per_page`, etc. Do **not** put `page` here — pagination is stored in Supabase **`apollo_sync_state`**. |
+| `APOLLO_MATCH_REVEAL_EMAIL` | If **`true`**, after each search hit the worker calls **`people/match`** with **`reveal_personal_emails: true`** so work emails can land on **`leads.work_email`**. **Consumes Apollo credits.** If **`false`** (default), inserts run with email often empty until **`waterfall-enrich`** (Hunter) fills from **`signals_json.organization_domain`**. |
+| `ENRICHMENT_LEADMAGIC_API_KEY` | Waterfall / enrichment (when wired). |
+| `ENRICHMENT_HUNTER_API_KEY` | **`waterfall-enrich`:** if `work_email` is empty and **`signals_json.organization_domain`** is set (Apollo org domain or legacy `clay_company_domain`), Hunter may fill email/name/title into **empty** fields only. |
 | `MAX_ENRICHMENT_COST_PER_LEAD` | Defaults to **0.15** in code if unset. |
+
+#### Apollo — what you do in plain English
+
+1. In **Apollo**, create a **master API key** (paid plans; People Search returns **403** if the key is not allowed for `mixed_people/api_search`).
+2. Put **`APOLLO_API_KEY`** in **Vercel** (and **`.env.local`** for local tests). Redeploy.
+3. Apply the Supabase migration **`20260409120000_apollo_sync_state.sql`** so table **`apollo_sync_state`** exists (stores the next **page** for search).
+4. Add **`POST /api/workers/apollo-ingest`** to **`pg_cron`** with the same **`CRON_SECRET`** as your other workers (see **`docs/pg-cron-vercel.md`**). Example: every **30–60 minutes** so you stay under Apollo rate limits.
+5. **Optional:** set **`APOLLO_MATCH_REVEAL_EMAIL=true`** when you want emails during ingest (**credits**). Otherwise rely on **Hunter** in **`waterfall-enrich`** after Apollo stores **`organization_domain`** on the lead.
+6. **Optional:** set **`APOLLO_SEARCH_JSON`** to a **single-line JSON** object to narrow or widen the search (e.g. different states or company sizes).
+
+After **`apollo-ingest`** runs, new rows are **`pending`** on enrichment; your existing cron chain (**`waterfall-enrich`** → **`score`** → **`copy-generate`** → **`send-queue`**) continues automatically.
 
 ### Other
 

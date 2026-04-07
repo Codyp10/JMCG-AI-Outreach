@@ -10,6 +10,7 @@ Send header **`Authorization: Bearer <CRON_SECRET>`** or **`x-cron-secret: <CRON
 
 | Job | Method | Path |
 |-----|--------|------|
+| Apollo ingest (People Search → `leads`) | POST | `/api/workers/apollo-ingest` |
 | Enrichment | POST | `/api/workers/waterfall-enrich` |
 | Scoring | POST | `/api/workers/score` |
 | Handwritten enqueue | POST | `/api/workers/handwritten-enqueue` | same tier as `HIGH_TOUCH_MIN_SCORE`; inserts `channel_dispatch` **before** phone enrich |
@@ -68,3 +69,25 @@ SELECT net.http_post(
 Configure schedules per plan (e.g. enrich every 10 min, send every 2 min). Use **Vercel Pro** for **300s** timeouts on worker routes.
 
 **Order:** Run **`handwritten-enqueue` before `phone-enrich`** (same cron interval is fine if handwritten runs first — e.g. two `net.http_post` calls in one pg_cron job, or schedule handwritten a few minutes earlier).
+
+---
+
+## Apollo ingest (scheduled in repo migration)
+
+Migration **`20260410120000_pg_cron_apollo_ingest.sql`** creates:
+
+- Table **`public.cron_target`** (singleton `id = 1`) with **`vercel_base_url`** — default **`https://jmcg-ai-outreach.vercel.app`**. If your Vercel URL differs, run:
+
+```sql
+UPDATE public.cron_target
+SET vercel_base_url = 'https://YOUR-ACTUAL-PROJECT.vercel.app'
+WHERE id = 1;
+```
+
+- Function **`public.invoke_apollo_ingest()`** — `POST` **`{vercel_base_url}/api/workers/apollo-ingest`** with **`Authorization: Bearer`** + **`vault.decrypted_secrets`** where **`name = 'vercel_cron_secret'`** (same value as Vercel **`CRON_SECRET`**).
+
+- pg_cron job **`jmcg-apollo-ingest`** — **`20 * * * *`** (every hour at :20). Change the schedule in SQL with `cron.unschedule` / `cron.schedule` if needed.
+
+**Full URL called (default):** `https://jmcg-ai-outreach.vercel.app/api/workers/apollo-ingest`
+
+Requires **Vault** secret **`vercel_cron_secret`** and extensions **pg_cron** + **pg_net** enabled in the Supabase project.

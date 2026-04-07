@@ -33,3 +33,4 @@ export function verifyInstantlyWebhook(request: Request): boolean {
     request.headers.get("x-instantly-signature") === expected
   );
 }
+

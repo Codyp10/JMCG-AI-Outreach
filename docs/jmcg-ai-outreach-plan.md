@@ -146,7 +146,7 @@ Apply to **each** secondary domain used for outbound:
 │                                                         │
 │  /api/workers/waterfall-enrich                          │
 │    Pull next batch of unenriched leads from Supabase    │
-│    Run provider chain (Clay → Lead Magic → Hunter)      │
+│    Run provider chain (Apollo ingest → Hunter / Lead Magic)      │
 │    Respect per-lead cost cap                            │
 │    Write results back to enrichment_runs + leads        │
 │                                                         │
@@ -240,7 +240,7 @@ Apply to **each** secondary domain used for outbound:
 | `CRON_SECRET` | Shared secret for pg_cron → Vercel |
 | `INSTANTLY_WEBHOOK_SECRET` | Validate Instantly webhooks (custom header on webhook registration) |
 | `SLACK_WEBHOOK_URL` | Escalations + monthly reports |
-| `ENRICHMENT_CLAY_API_KEY` | Clay (or primary provider) |
+| `APOLLO_API_KEY` | Apollo.io People Search + optional match (see `apollo-ingest` worker) |
 | `ENRICHMENT_LEADMAGIC_API_KEY` | Lead Magic |
 | `ENRICHMENT_HUNTER_API_KEY` | Hunter |
 | `MAX_ENRICHMENT_COST_PER_LEAD` | Default: **0.15** |

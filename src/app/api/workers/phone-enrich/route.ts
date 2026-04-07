@@ -47,7 +47,7 @@ export async function POST(request: Request) {
           cumulative_cost: 0,
           payload: {
             note:
-              "Manual-dial-only: wire Lead Magic / Clay / etc. when API keys are set. No auto-dial.",
+              "Manual-dial-only: wire Lead Magic / vendor APIs when keys are set. No auto-dial.",
             resolved_phone: phone,
             min_score: HIGH_TOUCH_MIN_SCORE,
           },
