@@ -3,6 +3,7 @@ import {
   generateEmailCopy,
   runQaGate,
 } from "@/lib/gemini/email-copy";
+import { DEFAULT_GEMINI_MODEL } from "@/lib/gemini/generate";
 import { getFullEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCronSecret } from "@/lib/workers/cron-auth";
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
         let verdict: "pass" | "regenerate" | "failed_qa" = "pass";
 
         const geminiModel =
-          env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+          env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
 
         if (env.GEMINI_API_KEY) {
           let out = await generateEmailCopy(env.GEMINI_API_KEY, geminiModel, {

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { generateGeminiText } from "@/lib/gemini/generate";
+import {
+  DEFAULT_GEMINI_MODEL,
+  generateGeminiText,
+} from "@/lib/gemini/generate";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { postSlackMessage } from "@/lib/integrations/slack";
 import { verifyInstantlyWebhook } from "@/lib/workers/cron-auth";
@@ -136,7 +139,7 @@ export async function POST(request: Request) {
     try {
       const geminiKey = process.env.GEMINI_API_KEY;
       const geminiModel =
-        process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+        process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
       if (geminiKey && text) {
         const c = await classifyReply(geminiKey, geminiModel, text);
         reply_classification = c.reply_classification;

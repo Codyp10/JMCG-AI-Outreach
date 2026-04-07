@@ -1,5 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+/** Default model for copy-generate, reply classification, and QA (override with GEMINI_MODEL). */
+export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
 export async function generateGeminiText(params: {
   apiKey: string;
   model: string;

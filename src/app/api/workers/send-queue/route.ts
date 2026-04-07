@@ -9,6 +9,24 @@ export const maxDuration = 300;
 
 const BATCH = 25;
 
+async function resolveDefaultInstantlyCampaignId(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  envFallback: string | undefined,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("integration_settings")
+    .select("instantly_default_campaign_id")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) {
+    console.error("integration_settings read failed", error.message);
+  }
+  const fromDb = data?.instantly_default_campaign_id?.trim();
+  if (fromDb) return fromDb;
+  const fromEnv = envFallback?.trim();
+  return fromEnv && fromEnv.length > 0 ? fromEnv : null;
+}
+
 function refFromInstantlyResponse(body: unknown, fallback: string): string {
   if (body && typeof body === "object") {
     const o = body as Record<string, unknown>;
@@ -49,14 +67,19 @@ export async function POST(request: Request) {
     }[];
     batch = rows.length;
 
-    if (!env.INSTANTLY_API_KEY || !env.INSTANTLY_DEFAULT_CAMPAIGN_ID) {
+    const campaignId = await resolveDefaultInstantlyCampaignId(
+      supabase,
+      env.INSTANTLY_DEFAULT_CAMPAIGN_ID,
+    );
+
+    if (!env.INSTANTLY_API_KEY || !campaignId) {
       for (const m of rows) {
         await supabase
           .from("messages")
           .update({
             status: "qa_pass",
             error_message:
-              "INSTANTLY_API_KEY or INSTANTLY_DEFAULT_CAMPAIGN_ID missing — reset to qa_pass for retry.",
+              "INSTANTLY_API_KEY missing or default campaign unset — set integration_settings.instantly_default_campaign_id (id=1) or INSTANTLY_DEFAULT_CAMPAIGN_ID env; reset to qa_pass for retry.",
             updated_at: new Date().toISOString(),
           })
           .eq("id", m.id);
@@ -70,7 +93,8 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: false,
         batch,
-        error: "Instantly not configured; messages reverted to qa_pass.",
+        error:
+          "Instantly not configured (API key or default campaign); messages reverted to qa_pass.",
       });
     }
 
@@ -87,7 +111,7 @@ export async function POST(request: Request) {
 
         const result = await addLeadsToCampaign(
           env.INSTANTLY_API_KEY,
-          env.INSTANTLY_DEFAULT_CAMPAIGN_ID,
+          campaignId,
           [
             {
               email: lead.work_email,
@@ -112,7 +136,7 @@ export async function POST(request: Request) {
           .from("messages")
           .update({
             status: "sent",
-            instantly_campaign_id: env.INSTANTLY_DEFAULT_CAMPAIGN_ID,
+            instantly_campaign_id: campaignId,
             instantly_email_id: externalRef,
             error_message: null,
             updated_at: new Date().toISOString(),

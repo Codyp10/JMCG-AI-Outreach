@@ -43,10 +43,30 @@ With only Phase A, routes that use **`getFullEnv()`** still need `CRON_SECRET` t
 
 | Name | Purpose |
 |------|---------|
-| `GEMINI_API_KEY` | **Google Gemini** (AI Studio) — copy + QA in `copy-generate`; reply classification in `reply-agent`. Without it, `copy-generate` uses a short template fallback. |
-| `GEMINI_MODEL` | Optional — defaults to **`gemini-2.5-flash`**. Change when you want a different Gemini model ID. |
+| `GEMINI_API_KEY` | **Google Gemini** (AI Studio) — copy + QA in `copy-generate`; reply classification in `reply-agent`. Without it, `copy-generate` uses a short template fallback and replies stay `unclassified` unless you classify another way. |
+| `GEMINI_MODEL` | Optional — defaults to **`gemini-2.5-flash`** (see `DEFAULT_GEMINI_MODEL` in `src/lib/gemini/generate.ts`). Set only if you want another model ID from Google’s API. |
 | `INSTANTLY_API_KEY` | **Instantly API v2** — Bearer token for `send-queue`. |
-| `INSTANTLY_DEFAULT_CAMPAIGN_ID` | Instantly campaign UUID leads are added to from `send-queue`. |
+| `INSTANTLY_DEFAULT_CAMPAIGN_ID` | Optional fallback — Instantly campaign UUID for `send-queue`. **Preferred:** store the default campaign in Supabase **`integration_settings`** (singleton row `id = 1`, column `instantly_default_campaign_id`); apply migration `20260408130000_integration_settings.sql` if the table is missing. When that column is non-empty, it overrides this env var. |
+
+#### Gemini setup (Vercel)
+
+1. Open [Google AI Studio](https://aistudio.google.com/apikey) and **Create API key** (pick or create a Google Cloud project if prompted).
+2. In Vercel → your project → **Settings** → **Environment Variables**, add **`GEMINI_API_KEY`** (Production; Preview only if you want AI on preview deploys). Mark it sensitive.
+3. Optional: add **`GEMINI_MODEL`** if you are not using the default Flash model.
+4. **Redeploy** the latest deployment (or push a commit) so serverless functions load the new variables.
+5. **Verify:** after the next `copy-generate` cron run, new `qa_results.details` rows should show `"mode":"gemini"` for messages that used AI (see `copy-generate` worker). Inbound **`reply-agent`** webhooks should persist non-`unclassified` labels when the inbound body is non-empty and Gemini succeeds.
+
+#### Default Instantly campaign in Supabase
+
+After migration, set the UUID once (SQL editor or any admin client):
+
+```sql
+UPDATE public.integration_settings
+SET instantly_default_campaign_id = 'YOUR_INSTANTLY_CAMPAIGN_UUID'
+WHERE id = 1;
+```
+
+You can leave **`INSTANTLY_DEFAULT_CAMPAIGN_ID`** unset in Vercel if this column is set.
 
 ### Phase C — webhooks and ops
 
